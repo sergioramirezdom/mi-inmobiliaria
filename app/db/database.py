@@ -2,9 +2,12 @@
 
 from sqlmodel import SQLModel, create_engine, Session, select
 from typing import List, Optional
-from app.config import settings
-from app.db.models import Fuente, Propiedad, FiltroAlerta
 import logging
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from config import settings
+from db.models import Fuente, Propiedad, FiltroAlerta
 
 logger = logging.getLogger(__name__)
 

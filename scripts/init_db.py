@@ -5,11 +5,11 @@ import sys
 import logging
 from pathlib import Path
 
-# Add parent directory to path so we can import app module
-sys.path.insert(0, str(Path(__file__).parent.parent))
+# Add app directory to path
+sys.path.insert(0, str(Path(__file__).parent.parent / "app"))
 
-from app.db.database import init_db
-from app.config import settings
+from db.database import init_db
+from config import settings
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

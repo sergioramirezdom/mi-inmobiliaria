@@ -1,10 +1,194 @@
-"""Página de gestión de fuentes (URLs de inmobiliarias).
-
-Esta página será implementada en Sprint 1.
-"""
+"""Página de gestión de fuentes (URLs de inmobiliarias)."""
 
 import streamlit as st
+import logging
+import sys
+from pathlib import Path
+from datetime import datetime
+from urllib.parse import urlparse
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from db.database import engine, FuenteCRUD
+from db.models import Fuente
+from sqlmodel import Session
+
+logger = logging.getLogger(__name__)
+
+# Page config
+st.set_page_config(
+    page_title="Gestión de Fuentes",
+    page_icon="📍",
+    layout="wide"
+)
 
 st.title("📍 Gestión de Fuentes")
+st.markdown("Aquí puedes añadir, editar y eliminar URLs de inmobiliarias para el scraping automático.")
 
-st.info("Esta página será implementada en Sprint 1. Aquí podrás añadir, editar y eliminar URLs de inmobiliarias.")
+# Validation function
+def validate_url(url: str) -> bool:
+    """Validate URL format."""
+    try:
+        result = urlparse(url)
+        return all([result.scheme in ['http', 'https'], result.netloc])
+    except Exception:
+        return False
+
+# Create two columns for form and list
+col1, col2 = st.columns([1, 2])
+
+with col1:
+    st.subheader("➕ Añadir Nueva Fuente")
+
+    with st.form("add_fuente_form", clear_on_submit=True):
+        nombre = st.text_input(
+            "Nombre de la fuente",
+            placeholder="ej: Idealista Madrid",
+            help="Un nombre descriptivo para identificar la fuente"
+        )
+
+        url = st.text_input(
+            "URL de la inmobiliaria",
+            placeholder="https://www.idealista.com/venta/viviendas/madrid/",
+            help="URL completa con protocolo (http/https)"
+        )
+
+        tipo_scraper = st.selectbox(
+            "Tipo de scraper",
+            options=["generic", "playwright"],
+            help="generic: httpx + BeautifulSoup (rápido). playwright: navegador real (más lento pero confiable)"
+        )
+
+        intervalo_horas = st.number_input(
+            "Intervalo de scraping (horas)",
+            min_value=1,
+            max_value=168,
+            value=24,
+            help="Cada cuántas horas hacer scraping de esta fuente"
+        )
+
+        notas = st.text_area(
+            "Notas (opcional)",
+            placeholder="ej: Esta fuente requiere... / Filtros específicos...",
+            height=100
+        )
+
+        submitted = st.form_submit_button("✅ Añadir Fuente", use_container_width=True)
+
+        if submitted:
+            # Validation
+            if not nombre.strip():
+                st.error("❌ El nombre es obligatorio")
+            elif not url.strip():
+                st.error("❌ La URL es obligatoria")
+            elif not validate_url(url):
+                st.error("❌ URL inválida. Debe comenzar con http:// o https://")
+            else:
+                try:
+                    with Session(engine) as session:
+                        # Check if URL already exists
+                        existing = FuenteCRUD.get_by_url(session, url)
+                        if existing:
+                            st.error("⚠️ Esta URL ya existe en la base de datos")
+                        else:
+                            new_fuente = Fuente(
+                                nombre=nombre.strip(),
+                                url=url.strip(),
+                                tipo_scraper=tipo_scraper,
+                                intervalo_horas=int(intervalo_horas),
+                                notas=notas.strip() if notas.strip() else None,
+                                activa=True
+                            )
+                            FuenteCRUD.create(session, new_fuente)
+                            st.success(f"✅ Fuente '{nombre}' añadida correctamente")
+                            st.rerun()
+                except Exception as e:
+                    logger.error(f"Error al añadir fuente: {e}")
+                    st.error(f"❌ Error al añadir la fuente: {e}")
+
+with col2:
+    st.subheader("📋 Fuentes Existentes")
+
+    try:
+        with Session(engine) as session:
+            fuentes = FuenteCRUD.get_all(session)
+
+            if not fuentes:
+                st.info("📌 No hay fuentes registradas. Añade una en el formulario de la izquierda.")
+            else:
+                st.write(f"**Total: {len(fuentes)} fuente(s)**")
+                st.divider()
+
+                for fuente in fuentes:
+                    with st.container(border=True):
+                        # Header row with name and status
+                        col_name, col_status, col_actions = st.columns([2, 1, 1.5])
+
+                        with col_name:
+                            status_icon = "🟢" if fuente.activa else "🔴"
+                            st.markdown(f"### {status_icon} {fuente.nombre}")
+
+                        with col_status:
+                            tipo_badge = f"🤖 {fuente.tipo_scraper}"
+                            st.caption(tipo_badge)
+
+                        with col_actions:
+                            col_toggle, col_delete = st.columns(2)
+                            with col_toggle:
+                                if st.button(
+                                    "✓ Activar" if not fuente.activa else "✗ Desactivar",
+                                    key=f"toggle_{fuente.id}",
+                                    use_container_width=True,
+                                    type="secondary"
+                                ):
+                                    with Session(engine) as s:
+                                        FuenteCRUD.update(s, fuente.id, activa=not fuente.activa)
+                                    st.rerun()
+
+                            with col_delete:
+                                if st.button(
+                                    "🗑️ Eliminar",
+                                    key=f"delete_{fuente.id}",
+                                    use_container_width=True
+                                ):
+                                    with Session(engine) as s:
+                                        FuenteCRUD.delete(s, fuente.id)
+                                    st.success("Fuente eliminada")
+                                    st.rerun()
+
+                        # URL
+                        st.caption(f"🔗 {fuente.url}")
+
+                        # Details
+                        col_interval, col_exec = st.columns(2)
+                        with col_interval:
+                            st.caption(f"⏰ Cada {fuente.intervalo_horas}h")
+                        with col_exec:
+                            if fuente.ultima_ejecucion:
+                                last_exec = fuente.ultima_ejecucion.strftime("%d/%m/%Y %H:%M")
+                                st.caption(f"⏱️ Última: {last_exec}")
+                            else:
+                                st.caption("⏱️ Nunca ejecutada")
+
+                        # Notes
+                        if fuente.notas:
+                            st.caption(f"📝 {fuente.notas}")
+
+                        # Test scraping button (placeholder for Sprint 2)
+                        st.button(
+                            "🧪 Probar scraping",
+                            key=f"test_{fuente.id}",
+                            disabled=True,
+                            help="Funcionalidad disponible en Sprint 2",
+                            use_container_width=True
+                        )
+
+    except Exception as e:
+        logger.error(f"Error al cargar fuentes: {e}")
+        st.error(f"❌ Error al cargar las fuentes: {e}")
+
+st.divider()
+st.markdown("""
+### 💡 Consejo
+- Comienza con una fuente de prueba (ej: un portal inmobiliario pequeño)
+- Usa "Probar scraping" para validar que funciona antes de activarla automáticamente
+- El scraping automático se ejecuta a las 08:00 y 20:00 UTC según el intervalo configurado
+""")

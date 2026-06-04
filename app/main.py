@@ -2,8 +2,12 @@
 
 import streamlit as st
 import logging
-from app.db.database import init_db, engine
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent))
+from db.database import init_db, engine
 from sqlmodel import Session
+from sqlalchemy import text
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -25,7 +29,7 @@ def init_database():
         with Session(engine) as session:
             logger.info("Checking database connection...")
             # Try a simple query to verify connection
-            session.exec("SELECT 1").all()
+            session.exec(text("SELECT 1")).all()
         init_db()
         logger.info("Database initialized successfully")
         return True
