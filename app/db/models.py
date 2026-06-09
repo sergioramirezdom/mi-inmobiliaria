@@ -47,6 +47,7 @@ class Propiedad(SQLModel, table=True):
     # Basic info
     titulo: str
     precio: Optional[float] = Field(default=None, index=True)
+    precio_anterior: Optional[float] = None  # Previous price (before reduction)
     precio_comunidad: Optional[float] = None
     precio_ibi: Optional[float] = None
     tipo_propiedad: Optional[str] = Field(default=None, index=True)  # piso | casa | ático | bajo | dúplex | estudio | local
@@ -90,6 +91,7 @@ class Propiedad(SQLModel, table=True):
     # Metadata
     descripcion: Optional[str] = None
     fotos: Optional[List[str]] = Field(default=None, sa_column=Column(ARRAY(String)))
+    amenidades: Optional[List[str]] = Field(default=None, sa_column=Column(ARRAY(String)))  # e.g., ["Elevator", "Storage Room", "Air Conditioning"]
     fecha_publicacion: Optional[datetime] = None
     fecha_scraping: datetime = Field(default_factory=datetime.utcnow, index=True)
     activa: bool = Field(default=True, index=True)
@@ -104,6 +106,14 @@ class FiltroAlerta(SQLModel, table=True):
 
     id: Optional[int] = Field(default=None, primary_key=True)
     nombre: str = Field(index=True)
+
+    # Advanced filtering: criteria stored as JSON for flexibility
+    # Supports: precio_min, precio_max, m2_min, m2_max, habitaciones, banos,
+    #          barrio, tipo_propiedad, estado, año_construccion_min,
+    #          gastos_comunidad_max, amenidades, etc.
+    criterios_json: Optional[str] = None  # JSON string with filter criteria
+
+    # Legacy fields (kept for backwards compatibility)
     precio_max: Optional[float] = None
     precio_min: Optional[float] = None
     m2_min: Optional[float] = None
@@ -111,10 +121,11 @@ class FiltroAlerta(SQLModel, table=True):
     tipo_propiedad: Optional[str] = None
     ascensor: Optional[bool] = None
     garaje: Optional[bool] = None
-    palabras_clave: Optional[str] = None  # comma-separated keywords
+    palabras_clave: Optional[str] = None
     municipio: Optional[str] = None
     distrito: Optional[str] = None
+
     activo: bool = Field(default=True, index=True)
-    chat_id_telegram: str  # Where to send notifications
+    chat_id_telegram: Optional[str] = None  # Optional: uses env variable if not set
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
