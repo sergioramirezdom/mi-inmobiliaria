@@ -5,6 +5,20 @@ from typing import Optional, List
 from sqlmodel import SQLModel, Field, Column, String
 from sqlalchemy import ARRAY
 
+# Handle Streamlit reloads: Clean up existing tables from metadata
+# so they can be redefined without "already defined" errors
+try:
+    # Remove existing tables to allow redefinition
+    if 'fuente' in SQLModel.metadata.tables:
+        del SQLModel.metadata.tables['fuente']
+    if 'propiedad' in SQLModel.metadata.tables:
+        del SQLModel.metadata.tables['propiedad']
+    if 'filtroalerta' in SQLModel.metadata.tables:
+        del SQLModel.metadata.tables['filtroalerta']
+except Exception:
+    # If this fails, tables might not exist yet, which is fine
+    pass
+
 
 class Fuente(SQLModel, table=True):
     """Real estate source (portal URL) configuration."""

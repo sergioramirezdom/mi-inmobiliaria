@@ -4,10 +4,10 @@ import streamlit as st
 import logging
 import sys
 from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent))
-from db.database import init_db, engine
 from sqlmodel import Session
 from sqlalchemy import text
+
+sys.path.insert(0, str(Path(__file__).parent))
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -21,10 +21,21 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+
+@st.cache_resource
+def get_db_resources():
+    """Cache database imports to avoid SQLAlchemy reload issues."""
+    from db.database import init_db, engine
+    return {"init_db": init_db, "engine": engine}
+
+
 # Initialize database on first run
 @st.cache_resource
 def init_database():
     """Initialize database tables if not already done."""
+    db_resources = get_db_resources()
+    engine = db_resources["engine"]
+    init_db = db_resources["init_db"]
     try:
         with Session(engine) as session:
             logger.info("Checking database connection...")

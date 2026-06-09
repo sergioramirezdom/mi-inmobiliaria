@@ -7,14 +7,39 @@ import asyncio
 from pathlib import Path
 from datetime import datetime
 from urllib.parse import urlparse
-sys.path.insert(0, str(Path(__file__).parent.parent))
-from db.database import engine, FuenteCRUD
-from db.models import Fuente, Propiedad
 from sqlmodel import Session, select
-from scraper.runner import ScraperRunner
-from scraper.config import ScraperConfig
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 logger = logging.getLogger(__name__)
+
+
+@st.cache_resource
+def get_database_resources():
+    """Cache database imports to avoid SQLAlchemy reload issues."""
+    from db.database import engine, FuenteCRUD
+    from db.models import Fuente, Propiedad
+    from scraper.runner import ScraperRunner
+    from scraper.config import ScraperConfig
+
+    return {
+        "engine": engine,
+        "FuenteCRUD": FuenteCRUD,
+        "Fuente": Fuente,
+        "Propiedad": Propiedad,
+        "ScraperRunner": ScraperRunner,
+        "ScraperConfig": ScraperConfig,
+    }
+
+
+# Get all resources once (cached by Streamlit)
+_resources = get_database_resources()
+engine = _resources["engine"]
+FuenteCRUD = _resources["FuenteCRUD"]
+Fuente = _resources["Fuente"]
+Propiedad = _resources["Propiedad"]
+ScraperRunner = _resources["ScraperRunner"]
+ScraperConfig = _resources["ScraperConfig"]
 
 # Page config
 st.set_page_config(
