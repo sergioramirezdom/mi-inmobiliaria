@@ -3,13 +3,16 @@
 import streamlit as st
 import logging
 import sys
+import asyncio
 from pathlib import Path
 from datetime import datetime
 from urllib.parse import urlparse
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from db.database import engine, FuenteCRUD
-from db.models import Fuente
-from sqlmodel import Session
+from db.models import Fuente, Propiedad
+from sqlmodel import Session, select
+from scraper.runner import ScraperRunner
+from scraper.config import ScraperConfig
 
 logger = logging.getLogger(__name__)
 
@@ -172,14 +175,97 @@ with col2:
                         if fuente.notas:
                             st.caption(f"📝 {fuente.notas}")
 
-                        # Test scraping button (placeholder for Sprint 2)
-                        st.button(
-                            "🧪 Probar scraping",
-                            key=f"test_{fuente.id}",
-                            disabled=True,
-                            help="Funcionalidad disponible en Sprint 2",
-                            use_container_width=True
-                        )
+                        # Test scraping button with full workflow
+                        col_test, col_spacer = st.columns([1, 1])
+                        with col_test:
+                            if st.button(
+                                "🧪 Probar scraping",
+                                key=f"test_{fuente.id}",
+                                disabled=not fuente.activa,
+                                help="Ejecuta un scraping de prueba para esta fuente" if fuente.activa else "Activa la fuente primero",
+                                use_container_width=True
+                            ):
+                                st.session_state[f"scraping_{fuente.id}"] = True
+
+                        # Execute scraping if button was clicked
+                        if st.session_state.get(f"scraping_{fuente.id}", False):
+                            with st.spinner(f"🔄 Scrapeando {fuente.nombre}..."):
+                                try:
+                                    with Session(engine) as session:
+                                        runner = ScraperRunner(session)
+                                        # Run async scraper in sync context
+                                        stats = asyncio.run(runner.run_scraper(fuente))
+
+                                    # Display results in columns
+                                    result_cols = st.columns(4)
+                                    with result_cols[0]:
+                                        st.metric("✅ Nuevas", stats.get("nuevas", 0))
+                                    with result_cols[1]:
+                                        st.metric("⚠️ Duplicadas", stats.get("duplicadas", 0))
+                                    with result_cols[2]:
+                                        st.metric("❌ Errores", stats.get("errores", 0))
+                                    with result_cols[3]:
+                                        st.metric("⏱️ Tiempo (s)", stats.get("tiempo_segundos", 0))
+
+                                    # Show error details if any
+                                    if stats.get("error"):
+                                        st.error(f"❌ Error durante scraping: {stats['error']}")
+
+                                    # Display newly scraped properties
+                                    nuevas_count = stats.get("nuevas", 0)
+                                    if nuevas_count > 0:
+                                        st.divider()
+                                        st.subheader(f"📊 {nuevas_count} Propiedades Nuevas")
+
+                                        # Get recently added properties (from this scraping)
+                                        try:
+                                            with Session(engine) as session:
+                                                stmt = (
+                                                    select(Propiedad)
+                                                    .where(Propiedad.fuente_id == fuente.id)
+                                                    .order_by(Propiedad.created_at.desc())
+                                                    .limit(nuevas_count)
+                                                )
+                                                nuevas_propiedades = session.exec(stmt).all()
+
+                                                if nuevas_propiedades:
+                                                    # Create dataframe for display
+                                                    propiedades_data = []
+                                                    for prop in nuevas_propiedades:
+                                                        propiedades_data.append({
+                                                            "Título": prop.titulo or "Sin título",
+                                                            "Precio": f"€{prop.precio:,.0f}" if prop.precio else "N/A",
+                                                            "m²": f"{prop.superficie_m2:.0f}" if prop.superficie_m2 else "N/A",
+                                                            "Hab.": str(prop.habitaciones) if prop.habitaciones else "N/A",
+                                                            "Baños": str(prop.banos) if prop.banos else "N/A",
+                                                            "Dirección": prop.direccion or "N/A",
+                                                            "URL": prop.url_original[:50] + "..." if len(prop.url_original) > 50 else prop.url_original,
+                                                        })
+
+                                                    st.dataframe(
+                                                        propiedades_data,
+                                                        use_container_width=True,
+                                                        hide_index=True,
+                                                        column_config={
+                                                            "URL": st.column_config.LinkColumn("URL"),
+                                                        }
+                                                    )
+
+                                        except Exception as e:
+                                            logger.warning(f"Error mostrando propiedades: {e}")
+                                            st.warning("No se pudieron cargar las propiedades nuevas")
+
+                                    st.success("✅ Scraping completado")
+                                    st.session_state[f"scraping_{fuente.id}"] = False
+
+                                except asyncio.TimeoutError:
+                                    st.error("⏱️ Timeout: El scraping tardó demasiado tiempo")
+                                    st.session_state[f"scraping_{fuente.id}"] = False
+
+                                except Exception as e:
+                                    logger.error(f"Error en scraping de {fuente.nombre}: {e}")
+                                    st.error(f"❌ Error durante scraping: {str(e)}")
+                                    st.session_state[f"scraping_{fuente.id}"] = False
 
     except Exception as e:
         logger.error(f"Error al cargar fuentes: {e}")
