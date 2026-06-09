@@ -159,7 +159,18 @@ with col2:
                             st.caption(tipo_badge)
 
                         with col_actions:
-                            col_toggle, col_delete = st.columns(2)
+                            col_edit, col_toggle, col_delete = st.columns(3)
+
+                            with col_edit:
+                                if st.button(
+                                    "✏️ Editar",
+                                    key=f"edit_{fuente.id}",
+                                    use_container_width=True,
+                                    type="secondary"
+                                ):
+                                    st.session_state[f"editing_{fuente.id}"] = True
+                                    st.rerun()
+
                             with col_toggle:
                                 if st.button(
                                     "✓ Activar" if not fuente.activa else "✗ Desactivar",
@@ -200,37 +211,145 @@ with col2:
                         if fuente.notas:
                             st.caption(f"📝 {fuente.notas}")
 
-                        # Test scraping button with full workflow
-                        col_test, col_spacer = st.columns([1, 1])
+                        # Edit form (shown when edit button is clicked)
+                        if st.session_state.get(f"editing_{fuente.id}", False):
+                            st.divider()
+                            st.subheader("✏️ Editar Fuente")
+
+                            with st.form(f"edit_form_{fuente.id}"):
+                                edit_nombre = st.text_input(
+                                    "Nombre",
+                                    value=fuente.nombre,
+                                    key=f"edit_nombre_{fuente.id}"
+                                )
+
+                                edit_url = st.text_input(
+                                    "URL",
+                                    value=fuente.url,
+                                    key=f"edit_url_{fuente.id}"
+                                )
+
+                                edit_tipo = st.selectbox(
+                                    "Tipo de scraper",
+                                    options=["generic", "playwright"],
+                                    index=0 if fuente.tipo_scraper == "generic" else 1,
+                                    key=f"edit_tipo_{fuente.id}"
+                                )
+
+                                edit_intervalo = st.number_input(
+                                    "Intervalo de scraping (horas)",
+                                    min_value=1,
+                                    max_value=168,
+                                    value=fuente.intervalo_horas,
+                                    key=f"edit_intervalo_{fuente.id}"
+                                )
+
+                                edit_notas = st.text_area(
+                                    "Notas (opcional)",
+                                    value=fuente.notas or "",
+                                    height=80,
+                                    key=f"edit_notas_{fuente.id}"
+                                )
+
+                                col_save, col_cancel = st.columns(2)
+
+                                with col_save:
+                                    if st.form_submit_button("💾 Guardar Cambios", use_container_width=True):
+                                        if not edit_nombre.strip():
+                                            st.error("❌ El nombre es obligatorio")
+                                        elif not edit_url.strip():
+                                            st.error("❌ La URL es obligatoria")
+                                        elif not validate_url(edit_url):
+                                            st.error("❌ URL inválida")
+                                        else:
+                                            try:
+                                                with Session(engine) as s:
+                                                    # Check if new URL already exists (excluding current fuente)
+                                                    existing = FuenteCRUD.get_by_url(s, edit_url.strip())
+                                                    if existing and existing.id != fuente.id:
+                                                        st.error("⚠️ Esta URL ya existe en la base de datos")
+                                                    else:
+                                                        FuenteCRUD.update(
+                                                            s,
+                                                            fuente.id,
+                                                            nombre=edit_nombre.strip(),
+                                                            url=edit_url.strip(),
+                                                            tipo_scraper=edit_tipo,
+                                                            intervalo_horas=int(edit_intervalo),
+                                                            notas=edit_notas.strip() if edit_notas.strip() else None
+                                                        )
+                                                        st.success("✅ Cambios guardados")
+                                                        st.session_state[f"editing_{fuente.id}"] = False
+                                                        st.rerun()
+                                            except Exception as e:
+                                                logger.error(f"Error al actualizar fuente: {e}")
+                                                st.error(f"❌ Error al guardar: {e}")
+
+                                with col_cancel:
+                                    if st.form_submit_button("❌ Cancelar", use_container_width=True, type="secondary"):
+                                        st.session_state[f"editing_{fuente.id}"] = False
+                                        st.rerun()
+
+                        # Test scraping buttons
+                        col_test, col_complete = st.columns([1, 1])
                         with col_test:
                             if st.button(
                                 "🧪 Probar scraping",
                                 key=f"test_{fuente.id}",
                                 disabled=not fuente.activa,
-                                help="Ejecuta un scraping de prueba para esta fuente" if fuente.activa else "Activa la fuente primero",
+                                help="Ejecuta un scraping de prueba para esta fuente (página actual)" if fuente.activa else "Activa la fuente primero",
                                 use_container_width=True
                             ):
-                                st.session_state[f"scraping_{fuente.id}"] = True
+                                st.session_state[f"scraping_{fuente.id}"] = "simple"
+
+                        with col_complete:
+                            if st.button(
+                                "🌐 Scraping Completo",
+                                key=f"complete_{fuente.id}",
+                                disabled=not fuente.activa,
+                                help="Ejecuta scraping en TODAS las páginas (paginado)" if fuente.activa else "Activa la fuente primero",
+                                use_container_width=True,
+                                type="primary"
+                            ):
+                                st.session_state[f"scraping_{fuente.id}"] = "paginated"
 
                         # Execute scraping if button was clicked
-                        if st.session_state.get(f"scraping_{fuente.id}", False):
-                            with st.spinner(f"🔄 Scrapeando {fuente.nombre}..."):
+                        scraping_mode = st.session_state.get(f"scraping_{fuente.id}", False)
+                        if scraping_mode:
+                            scraping_type = "completo (paginado)" if scraping_mode == "paginated" else "simple"
+                            with st.spinner(f"🔄 Scrapeando {fuente.nombre} ({scraping_type})..."):
                                 try:
                                     with Session(engine) as session:
                                         runner = ScraperRunner(session)
-                                        # Run async scraper in sync context
-                                        stats = asyncio.run(runner.run_scraper(fuente))
+                                        # Run appropriate scraper in sync context
+                                        if scraping_mode == "paginated":
+                                            stats = asyncio.run(runner.run_paginated_scraper(fuente, results_per_page=48))
+                                        else:
+                                            stats = asyncio.run(runner.run_scraper(fuente))
 
                                     # Display results in columns
-                                    result_cols = st.columns(4)
-                                    with result_cols[0]:
-                                        st.metric("✅ Nuevas", stats.get("nuevas", 0))
-                                    with result_cols[1]:
-                                        st.metric("⚠️ Duplicadas", stats.get("duplicadas", 0))
-                                    with result_cols[2]:
-                                        st.metric("❌ Errores", stats.get("errores", 0))
-                                    with result_cols[3]:
-                                        st.metric("⏱️ Tiempo (s)", stats.get("tiempo_segundos", 0))
+                                    if scraping_mode == "paginated":
+                                        result_cols = st.columns(5)
+                                        with result_cols[0]:
+                                            st.metric("✅ Nuevas", stats.get("nuevas", 0))
+                                        with result_cols[1]:
+                                            st.metric("⚠️ Duplicadas", stats.get("duplicadas", 0))
+                                        with result_cols[2]:
+                                            st.metric("❌ Errores", stats.get("errores", 0))
+                                        with result_cols[3]:
+                                            st.metric("📄 Páginas", stats.get("paginas_procesadas", 0))
+                                        with result_cols[4]:
+                                            st.metric("⏱️ Tiempo (s)", stats.get("tiempo_segundos", 0))
+                                    else:
+                                        result_cols = st.columns(4)
+                                        with result_cols[0]:
+                                            st.metric("✅ Nuevas", stats.get("nuevas", 0))
+                                        with result_cols[1]:
+                                            st.metric("⚠️ Duplicadas", stats.get("duplicadas", 0))
+                                        with result_cols[2]:
+                                            st.metric("❌ Errores", stats.get("errores", 0))
+                                        with result_cols[3]:
+                                            st.metric("⏱️ Tiempo (s)", stats.get("tiempo_segundos", 0))
 
                                     # Show error details if any
                                     if stats.get("error"):
@@ -281,16 +400,16 @@ with col2:
                                             st.warning("No se pudieron cargar las propiedades nuevas")
 
                                     st.success("✅ Scraping completado")
-                                    st.session_state[f"scraping_{fuente.id}"] = False
+                                    st.session_state[f"scraping_{fuente.id}"] = None
 
                                 except asyncio.TimeoutError:
                                     st.error("⏱️ Timeout: El scraping tardó demasiado tiempo")
-                                    st.session_state[f"scraping_{fuente.id}"] = False
+                                    st.session_state[f"scraping_{fuente.id}"] = None
 
                                 except Exception as e:
                                     logger.error(f"Error en scraping de {fuente.nombre}: {e}")
                                     st.error(f"❌ Error durante scraping: {str(e)}")
-                                    st.session_state[f"scraping_{fuente.id}"] = False
+                                    st.session_state[f"scraping_{fuente.id}"] = None
 
     except Exception as e:
         logger.error(f"Error al cargar fuentes: {e}")
@@ -298,8 +417,10 @@ with col2:
 
 st.divider()
 st.markdown("""
-### 💡 Consejo
-- Comienza con una fuente de prueba (ej: un portal inmobiliario pequeño)
-- Usa "Probar scraping" para validar que funciona antes de activarla automáticamente
+### 💡 Consejos de Uso
+- **Probar scraping** (🧪): Ejecuta scraping en la página actual solamente (rápido)
+- **Scraping Completo** (🌐): Ejecuta scraping en TODAS las páginas con paginación (más lento pero más completo)
+- Comienza con "Probar scraping" para validar que funciona antes de usar "Scraping Completo"
 - El scraping automático se ejecuta a las 08:00 y 20:00 UTC según el intervalo configurado
+- El scraping completo es ideal para obtener todas las propiedades disponibles de una fuente
 """)

@@ -17,6 +17,8 @@ from .base import ScraperBase
 from .config import ScraperConfig
 from .exceptions import ScraperException, ValidationException
 from .generic import GenericScraper
+from .puerto_inmobiliaria import PuertoInmobiliariaScraper
+from .paginated_scraper import PaginatedScraper
 
 
 class ScraperRunner:
@@ -74,6 +76,19 @@ class ScraperRunner:
             # Process each property
             for idx, raw_data in enumerate(raw_data_list, 1):
                 try:
+                    # Enrich data with details from property page if needed
+                    if fuente.nombre == "Puerto Inmobiliaria":
+                        url_original = raw_data.get("url_original")
+                        if url_original:
+                            try:
+                                detail_scraper = PuertoInmobiliariaScraper(self.config)
+                                details = await detail_scraper.scrape_property_details(url_original)
+                                raw_data.update(details)
+                                self.logger.debug(f"✓ Enriched property {idx} with details")
+                            except Exception as e:
+                                self.logger.warning(f"⚠️ Could not enrich property {idx}: {e}")
+                                # Continue with basic data if detail scraping fails
+
                     # Normalize raw data to Propiedad model
                     propiedad = scraper.normalize_property(raw_data, fuente)
 
@@ -111,6 +126,68 @@ class ScraperRunner:
             self.logger.error(f"❌ Scraper failed for {fuente.nombre}: {e}")
             stats["error"] = str(e)
             return stats
+
+    async def run_paginated_scraper(
+        self,
+        fuente: Fuente,
+        results_per_page: int = 48,
+        max_pages: Optional[int] = None
+    ) -> dict:
+        """
+        Execute paginated scraper for a fuente (all pages).
+
+        Args:
+            fuente: Source to scrape
+            results_per_page: Results per page (default 48)
+            max_pages: Maximum pages to scrape (None = all)
+
+        Returns:
+            Statistics dictionary with results
+        """
+        if not fuente:
+            raise ValidationException("Fuente cannot be None")
+
+        start_time = time.time()
+
+        try:
+            self.logger.info(f"🚀 Starting PAGINATED scraper for {fuente.nombre}...")
+
+            # Use PaginatedScraper for multi-page scraping
+            paginated_scraper = PaginatedScraper(self.db_session, self.config)
+
+            # Execute paginated scraper
+            stats = await paginated_scraper.scrape_all_pages(
+                fuente,
+                results_per_page=results_per_page,
+                max_pages=max_pages
+            )
+
+            # Add timing information
+            elapsed = time.time() - start_time
+            stats["tiempo_segundos"] = round(elapsed, 2)
+
+            self.logger.info(
+                f"✓ Paginated scraper completed for {fuente.nombre}: "
+                f"nuevas={stats['nuevas']}, duplicadas={stats['duplicadas']}, "
+                f"páginas={stats['paginas_procesadas']}, tiempo={stats['tiempo_segundos']}s"
+            )
+
+            return stats
+
+        except Exception as e:
+            elapsed = time.time() - start_time
+            self.logger.error(f"❌ Paginated scraper failed for {fuente.nombre}: {e}")
+            return {
+                "fuente_id": fuente.id,
+                "nombre": fuente.nombre,
+                "nuevas": 0,
+                "duplicadas": 0,
+                "errores": 0,
+                "paginas_procesadas": 0,
+                "urls_encontradas": 0,
+                "tiempo_segundos": round(elapsed, 2),
+                "error": str(e),
+            }
 
     # ============================================================
     # PRIVATE HELPER METHODS
