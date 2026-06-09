@@ -3,13 +3,15 @@
 import asyncio
 import logging
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Optional, List
 
 from sqlmodel import Session, select
 
 from db.database import engine
-from db.models import Fuente
+from db.models import Fuente, Propiedad, FiltroAlerta
 from .runner import ScraperRunner
+from notifications.telegram import TelegramNotifier
+from notifications.filter_matcher import FilterMatcher
 
 logger = logging.getLogger(__name__)
 
@@ -72,7 +74,7 @@ class ScraperScheduler:
             self.logger.error(f"Error in check_and_scrape: {e}", exc_info=True)
 
     async def _scrape_fuente(self, fuente: Fuente) -> None:
-        """Scrape a single fuente and update its execution time."""
+        """Scrape a single fuente and send notifications based on filters."""
         try:
             self.logger.info(f"🚀 Starting scrape for {fuente.nombre}...")
 
@@ -101,14 +103,66 @@ class ScraperScheduler:
                 # Update ultima_ejecucion in DB
                 self._update_execution_time(fuente, session)
 
-                # Log notification if there are new properties
+                # Send notifications if there are new properties
                 if nuevas > 0:
                     self.logger.warning(
                         f"🎯 {fuente.nombre}: {nuevas} nuevas propiedades encontradas!"
                     )
+                    await self._send_notifications(fuente, stats, session)
 
         except Exception as e:
             self.logger.error(f"❌ Error scraping {fuente.nombre}: {e}", exc_info=True)
+
+    async def _send_notifications(
+        self, fuente: Fuente, stats: dict, session: Session
+    ) -> None:
+        """Send Telegram notifications based on filters."""
+        try:
+            notifier = TelegramNotifier()
+
+            # Get all active filters
+            stmt = select(FiltroAlerta).where(FiltroAlerta.activo == True)
+            filtros = session.exec(stmt).all()
+
+            if not filtros:
+                # No filters: send summary only
+                self.logger.debug("No active filters, sending summary only")
+                await notifier.send_scraping_summary(stats, fuente)
+                return
+
+            # Get newly added properties for this fuente
+            nuevas_count = stats.get("nuevas", 0)
+            if nuevas_count == 0:
+                return
+
+            stmt = (
+                select(Propiedad)
+                .where(Propiedad.fuente_id == fuente.id)
+                .order_by(Propiedad.created_at.desc())
+                .limit(nuevas_count)
+            )
+            nuevas_propiedades = session.exec(stmt).all()
+
+            # Apply filters and collect matches
+            filtro_matches = {}
+            for filtro in filtros:
+                matches = FilterMatcher.get_matching_properties(nuevas_propiedades, filtro)
+                if matches:
+                    filtro_matches[filtro] = matches
+                    self.logger.info(
+                        f"🎯 Filter '{filtro.nombre}': {len(matches)} propiedades coinciden"
+                    )
+
+            # Send notifications
+            if filtro_matches:
+                # Send summary with filter info + detailed alerts
+                await notifier.send_filtered_summary(fuente, stats, filtro_matches)
+            else:
+                # New properties but no filter matches
+                await notifier.send_no_matches_summary(fuente, stats, len(filtros))
+
+        except Exception as e:
+            self.logger.error(f"Error sending notifications: {e}", exc_info=True)
 
     def _should_scrape(self, fuente: Fuente) -> bool:
         """
