@@ -1,0 +1,58 @@
+name: Automated Scraper Scheduler
+
+on:
+  # Schedule scraping at 08:00 and 20:00 UTC daily
+  schedule:
+    - cron: '0 8 * * *'    # 08:00 UTC every day
+    - cron: '0 20 * * *'   # 20:00 UTC every day
+
+  # Allow manual trigger
+  workflow_dispatch:
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Configure environment
+        run: |
+          echo "DATABASE_URL=${{ secrets.DATABASE_URL }}" >> $GITHUB_ENV
+          echo "TELEGRAM_TOKEN=${{ secrets.TELEGRAM_TOKEN }}" >> $GITHUB_ENV
+          echo "TELEGRAM_CHAT_ID=${{ secrets.TELEGRAM_CHAT_ID }}" >> $GITHUB_ENV
+
+      - name: Run scheduled scraper
+        run: |
+          echo "🚀 Starting automated scraper ($(date -u +'%Y-%m-%d %H:%M:%S UTC'))"
+          python -u scripts/scheduler.py --interval 1 --results-per-page 48
+        timeout-minutes: 100
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: scraper-logs-${{ github.run_id }}
+          path: logs/
+          retention-days: 7
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "✅ Scraper run completed"
+          if [ -f logs/scheduler.log ]; then
+            echo "📊 Latest entries:"
+            tail -20 logs/scheduler.log
+          fi
