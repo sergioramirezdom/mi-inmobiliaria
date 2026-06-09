@@ -252,19 +252,24 @@ class ScraperBase(ABC):
             raise ScraperException("URL cannot be empty")
 
         for attempt in range(self.config.retries):
+            client = None
             try:
                 self.logger.debug(f"Fetching URL (attempt {attempt + 1}/{self.config.retries}): {url[:60]}...")
 
-                async with httpx.AsyncClient(
+                client = httpx.AsyncClient(
                     timeout=self.config.timeout,
                     verify=self.config.verify_ssl,
                     headers=self.config.headers or {},
-                ) as client:
+                    limits=httpx.Limits(max_keepalive_connections=5)
+                )
+
+                async with client:
                     response = await client.get(url)
                     response.raise_for_status()
+                    content = response.text
 
-                self.logger.info(f"✓ Fetched {len(response.text)} bytes from {url[:60]}...")
-                return response.text
+                self.logger.info(f"✓ Fetched {len(content)} bytes from {url[:60]}...")
+                return content
 
             except httpx.TimeoutException as e:
                 self.logger.warning(f"⏱️ Timeout on attempt {attempt + 1}/{self.config.retries}: {e}")
@@ -286,6 +291,14 @@ class ScraperBase(ABC):
                     await asyncio.sleep(2 ** attempt)
                     continue
                 raise ScraperException(f"Failed to fetch {url}: {e}")
+
+            finally:
+                # Ensure client is closed
+                if client is not None:
+                    try:
+                        await client.aclose()
+                    except Exception as e:
+                        self.logger.debug(f"Error closing client: {e}")
 
         raise ScraperException(f"Failed to fetch {url} after {self.config.retries} attempts")
 

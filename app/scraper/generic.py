@@ -181,12 +181,30 @@ class GenericScraper(ScraperBase):
 
         # Fallback to regex pattern
         if field_name == "link":
-            # For links, search for href attributes
+            # For links, try multiple sources
             try:
                 element_html = str(element)
+
+                # Try href attribute first
                 match = re.search(r'href=["\']([^"\']+)["\']', element_html)
                 if match:
                     return match.group(1)
+
+                # Try onclick attribute (common in dynamic sites)
+                match = re.search(r"onclick=['\"].*?['\"]([^'\"]+)['\"]['\"]", element_html)
+                if match:
+                    return match.group(1)
+
+                # Try onclick with location.href pattern
+                match = re.search(r"onclick=['\"].*?location\.href=['\"]([^'\"]+)['\"][^'\"]*['\"]", element_html)
+                if match:
+                    return match.group(1)
+
+                # Generic onclick URL extraction
+                match = re.search(r"onclick=['\"].*?['\"]([^'\"]*(?:index|ficha|property|listing|detail)[^'\"]*)['\"]", element_html)
+                if match:
+                    return match.group(1)
+
             except Exception as e:
                 self.logger.debug(f"Link regex failed: {e}")
         else:
