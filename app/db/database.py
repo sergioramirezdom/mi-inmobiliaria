@@ -158,6 +158,33 @@ class PropiedadCRUD:
         """Count total properties."""
         return session.exec(select(Propiedad)).all().__len__()
 
+    @staticmethod
+    def mark_as_viewed(session: Session, propiedad_id: int) -> Optional[Propiedad]:
+        """Mark a property as viewed."""
+        return PropiedadCRUD.update(session, propiedad_id, vista=True)
+
+    @staticmethod
+    def mark_as_discarded(session: Session, propiedad_id: int) -> Optional[Propiedad]:
+        """Mark a property as discarded."""
+        return PropiedadCRUD.update(session, propiedad_id, descartada=True)
+
+    @staticmethod
+    def mark_as_favorite(session: Session, propiedad_id: int, favorita: bool = True) -> Optional[Propiedad]:
+        """Mark a property as favorite (or unfavorite if favorita=False)."""
+        return PropiedadCRUD.update(session, propiedad_id, favorita=favorita)
+
+    @staticmethod
+    def toggle_favorite(session: Session, propiedad_id: int) -> Optional[Propiedad]:
+        """Toggle favorite status of a property."""
+        propiedad = session.get(Propiedad, propiedad_id)
+        if not propiedad:
+            return None
+        propiedad.favorita = not propiedad.favorita
+        session.add(propiedad)
+        session.commit()
+        session.refresh(propiedad)
+        return propiedad
+
 
 # CRUD Helpers for FiltroAlerta
 class FiltroAlertaCRUD:

@@ -193,6 +193,7 @@ class ScraperBase(ABC):
                 origen_web=origen_web,
                 titulo=raw_data.get("titulo") or raw_data.get("title") or "Sin título",
                 precio=precio,
+                precio_anterior=self._parse_float(raw_data.get("precio_anterior"), "precio_anterior"),
                 tipo_propiedad=raw_data.get("tipo_propiedad") or raw_data.get("property_type"),
                 superficie_m2=superficie_m2,
                 habitaciones=habitaciones,
@@ -223,6 +224,7 @@ class ScraperBase(ABC):
                 longitud=self._parse_float(raw_data.get("longitud"), "longitud"),
                 descripcion=raw_data.get("descripcion") or raw_data.get("description"),
                 fotos=raw_data.get("fotos") or raw_data.get("images"),
+                amenidades=raw_data.get("amenidades"),
                 fecha_publicacion=raw_data.get("fecha_publicacion"),
             )
 
@@ -252,19 +254,18 @@ class ScraperBase(ABC):
             raise ScraperException("URL cannot be empty")
 
         for attempt in range(self.config.retries):
-            client = None
             try:
                 self.logger.debug(f"Fetching URL (attempt {attempt + 1}/{self.config.retries}): {url[:60]}...")
 
-                client = httpx.AsyncClient(
+                async with httpx.AsyncClient(
                     timeout=self.config.timeout,
                     verify=self.config.verify_ssl,
                     headers=self.config.headers or {},
-                    limits=httpx.Limits(max_keepalive_connections=5)
-                )
-
-                async with client:
-                    response = await client.get(url)
+                    limits=httpx.Limits(max_keepalive_connections=5),
+                    http2=False,
+                    mounts={"https://": httpx.AsyncHTTPTransport(http2=False)}
+                ) as client:
+                    response = await client.get(url, follow_redirects=True)
                     response.raise_for_status()
                     content = response.text
 
@@ -291,14 +292,6 @@ class ScraperBase(ABC):
                     await asyncio.sleep(2 ** attempt)
                     continue
                 raise ScraperException(f"Failed to fetch {url}: {e}")
-
-            finally:
-                # Ensure client is closed
-                if client is not None:
-                    try:
-                        await client.aclose()
-                    except Exception as e:
-                        self.logger.debug(f"Error closing client: {e}")
 
         raise ScraperException(f"Failed to fetch {url} after {self.config.retries} attempts")
 

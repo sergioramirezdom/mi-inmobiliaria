@@ -1,12 +1,18 @@
 """Paginated scraper - handles multiple pages and deduplication."""
 
 import logging
+from datetime import datetime
 from typing import List, Optional, Dict
 from sqlmodel import Session, select
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from .base import ScraperBase
 from .generic import GenericScraper
 from .puerto_inmobiliaria import PuertoInmobiliariaScraper
+from .mobilia_scraper import MobiliaScraper
 from .config import ScraperConfig
 from db.models import Fuente, Propiedad
 
@@ -50,13 +56,20 @@ class PaginatedScraper:
         }
 
         # Load config from fuente.notas if available
+        fuente_config = self.config
         if fuente.notas:
             try:
                 fuente_config = ScraperConfig.from_fuente_notas(fuente.notas)
-                # Update generic scraper with fuente-specific config
                 self.generic_scraper.config = fuente_config
             except Exception as e:
                 self.logger.warning(f"Could not load config from fuente.notas: {e}")
+
+        # Choose detail scraper based on config
+        detail_type = fuente_config.detail_scraper_type
+        if detail_type == "mobilia":
+            self.detail_scraper = MobiliaScraper(fuente_config)
+        elif detail_type == "puerto" or detail_type is None:
+            self.detail_scraper = PuertoInmobiliariaScraper(fuente_config)
 
         try:
             page = 1
@@ -130,7 +143,21 @@ class PaginatedScraper:
                         existing = self.db_session.exec(stmt).first()
 
                         if existing:
-                            self.logger.debug(f"⏭️ Duplicate found: {existing.titulo}")
+                            # For active duplicates older than 7 days, check if sold
+                            if existing.activa and existing.fecha_scraping:
+                                days_old = (datetime.utcnow() - existing.fecha_scraping).days
+                                if days_old >= 3:
+                                    try:
+                                        details = await self.detail_scraper.scrape_property_details(url_original)
+                                        if not details.get("activa", True):
+                                            existing.activa = False
+                                            existing.estado = details.get("estado", "Vendida")
+                                            self.db_session.add(existing)
+                                            self.db_session.commit()
+                                            self.logger.info(f"🚫 Marcada como vendida: {existing.titulo}")
+                                            stats["vendidas"] = stats.get("vendidas", 0) + 1
+                                    except Exception:
+                                        pass
                             stats["duplicadas"] += 1
                             continue
 
@@ -141,6 +168,12 @@ class PaginatedScraper:
                             raw_data.update(details)
                         except Exception as e:
                             self.logger.warning(f"Could not enrich property: {e}")
+
+                        # Skip sold properties (don't save them)
+                        if not raw_data.get("activa", True):
+                            self.logger.info(f"⏭️ Propiedad vendida, no se guarda: {url_original[:60]}")
+                            stats["vendidas"] = stats.get("vendidas", 0) + 1
+                            continue
 
                         # Normalize and save
                         propiedad = self.generic_scraper.normalize_property(raw_data, fuente)

@@ -14,6 +14,7 @@ class SelectorsConfig:
     """CSS selectors for extracting property elements and fields."""
 
     property_container: Optional[str] = None
+    link_href_contains: Optional[str] = None  # Extract links directly by href pattern (for JS-rendered pages)
     price: Optional[str] = None
     size: Optional[str] = None
     rooms: Optional[str] = None
@@ -55,8 +56,8 @@ class ScraperConfig:
     """Main configuration for scraper execution."""
 
     # HTTP settings
-    timeout: int = 30  # seconds
-    retries: int = 3
+    timeout: int = 120  # seconds (increased for gzip decompression)
+    retries: int = 2
     user_agent: str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     verify_ssl: bool = True
     headers: Dict[str, str] = field(default_factory=dict)
@@ -68,6 +69,9 @@ class ScraperConfig:
     # Auto-detect settings
     auto_detect: bool = True  # Try to detect properties even without selectors
     min_confidence: float = 0.5  # Minimum confidence score for auto-detected fields
+
+    # Detail scraper type: "puerto" | "mobilia" | None (skip detail enrichment)
+    detail_scraper_type: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary."""
@@ -112,6 +116,7 @@ class ScraperConfig:
                 patterns=patterns,
                 auto_detect=data.get("auto_detect", True),
                 min_confidence=data.get("min_confidence", 0.5),
+                detail_scraper_type=data.get("detail_scraper_type", None),
             )
         except TypeError as e:
             raise ValidationException(f"Invalid config data: {e}")

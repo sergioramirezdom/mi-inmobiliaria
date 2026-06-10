@@ -3,36 +3,46 @@
 import os
 from dotenv import load_dotenv
 
-# Load environment variables from .env
 load_dotenv()
 
 
+def _get(key: str, default: str = "") -> str:
+    """Read from st.secrets (Streamlit Cloud) or env vars (local)."""
+    try:
+        import streamlit as st
+        if hasattr(st, "secrets") and key in st.secrets:
+            return str(st.secrets[key])
+    except Exception:
+        pass
+    return os.getenv(key, default)
+
+
 class Settings:
-    """Application settings loaded from environment variables."""
+    """Application settings — reads from st.secrets (cloud) or .env (local)."""
 
-    # Database
-    DATABASE_URL: str = os.getenv("DATABASE_URL", "postgresql://user:pass@localhost/inmobiliaria")
+    @property
+    def DATABASE_URL(self) -> str:
+        return _get("DATABASE_URL", "postgresql://user:pass@localhost/inmobiliaria")
 
-    # Telegram Bot
-    TELEGRAM_TOKEN: str = os.getenv("TELEGRAM_TOKEN", "")
-    TELEGRAM_CHAT_ID: str = os.getenv("TELEGRAM_CHAT_ID", "")
+    @property
+    def TELEGRAM_TOKEN(self) -> str:
+        return _get("TELEGRAM_TOKEN", "")
 
-    # App settings
-    DEBUG: bool = os.getenv("DEBUG", "false").lower() == "true"
+    @property
+    def TELEGRAM_CHAT_ID(self) -> str:
+        return _get("TELEGRAM_CHAT_ID", "")
 
-    # Scraper settings
-    SCRAPER_TIMEOUT: int = int(os.getenv("SCRAPER_TIMEOUT", "30"))
-    SCRAPER_RETRIES: int = int(os.getenv("SCRAPER_RETRIES", "3"))
+    @property
+    def DEBUG(self) -> bool:
+        return _get("DEBUG", "false").lower() == "true"
 
-    @classmethod
-    def validate(cls):
-        """Validate required settings."""
-        if not cls.DATABASE_URL:
-            raise ValueError("DATABASE_URL environment variable is required")
-        if not cls.TELEGRAM_TOKEN:
-            raise ValueError("TELEGRAM_TOKEN environment variable is required")
-        if not cls.TELEGRAM_CHAT_ID:
-            raise ValueError("TELEGRAM_CHAT_ID environment variable is required")
+    @property
+    def SCRAPER_TIMEOUT(self) -> int:
+        return int(_get("SCRAPER_TIMEOUT", "120"))
+
+    @property
+    def SCRAPER_RETRIES(self) -> int:
+        return int(_get("SCRAPER_RETRIES", "2"))
 
 
 settings = Settings()

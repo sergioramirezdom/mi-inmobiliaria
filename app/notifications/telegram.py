@@ -6,6 +6,10 @@ from typing import List, Optional
 from datetime import datetime
 
 import httpx
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from db.models import Propiedad, FiltroAlerta, Fuente
 from .filter_matcher import FilterMatcher

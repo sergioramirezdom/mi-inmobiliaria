@@ -4,6 +4,10 @@ import json
 import logging
 from typing import List, Dict, Any, Optional
 from datetime import datetime
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from db.models import Propiedad, FiltroAlerta
 
@@ -123,6 +127,16 @@ class FilterMatcher:
                 return False
             return propiedad.precio_comunidad <= float(value)
 
+        # Boolean amenity checks
+        if key == "ascensor" and value:
+            return bool(propiedad.ascensor)
+        if key == "garaje" and value:
+            return bool(propiedad.garaje)
+        if key == "terraza" and value:
+            return bool(propiedad.terraza)
+        if key == "piscina" and value:
+            return bool(propiedad.piscina)
+
         # Amenities (check if list contains any of the amenities)
         if key == "amenidades":
             if propiedad.amenidades is None or not propiedad.amenidades:
@@ -190,6 +204,14 @@ class FilterMatcher:
                 parts.append(f"Gastos comunidad máx: €{float(value):,.0f}")
             elif key == "amenidades":
                 parts.append(f"Amenidades: {value}")
+            elif key == "ascensor" and value:
+                parts.append("Ascensor ✓")
+            elif key == "garaje" and value:
+                parts.append("Garaje ✓")
+            elif key == "terraza" and value:
+                parts.append("Terraza ✓")
+            elif key == "piscina" and value:
+                parts.append("Piscina ✓")
 
         return " • ".join(parts) if parts else "Sin criterios"
 
@@ -208,6 +230,10 @@ class FilterMatcher:
         año_construccion_min: Optional[int] = None,
         gastos_comunidad_max: Optional[float] = None,
         amenidades: Optional[str] = None,
+        ascensor: bool = False,
+        garaje: bool = False,
+        terraza: bool = False,
+        piscina: bool = False,
     ) -> Dict[str, Any]:
         """Create criteria dictionary from parameters."""
         criteria = {}
@@ -238,5 +264,13 @@ class FilterMatcher:
             criteria["gastos_comunidad_max"] = gastos_comunidad_max
         if amenidades:
             criteria["amenidades"] = amenidades
+        if ascensor:
+            criteria["ascensor"] = True
+        if garaje:
+            criteria["garaje"] = True
+        if terraza:
+            criteria["terraza"] = True
+        if piscina:
+            criteria["piscina"] = True
 
         return criteria

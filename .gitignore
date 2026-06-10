@@ -48,7 +48,33 @@ env/
 
 # Streamlit
 .streamlit/secrets.toml
-.streamlit/config.toml
+
+# Debug and test scripts (local only)
+debug_*.py
+check_*.py
+test_*.py
+explore_*.py
+quick_*.py
+load_env.py
+verify_*.py
+migrate_*.py
+alpica_ejemplo_vivienda.html
+*.log
+test_output.log
+logs/
+
+# Temp docs
+IMPLEMENTED_FEATURES.md
+NEXT_STEP.md
+PUERTO_DEBUGGING.md
+PUERTO_FIX.md
+SESSION_SUMMARY.md
+TEST_COMPLETE_WORKFLOW.md
+TROUBLESHOOTING.md
+SCHEDULER_GUIDE.md
+TESTING_*.md
+STREAMLIT_*.md
+TELEGRAM_*.md
 
 # OS
 .DS_Store

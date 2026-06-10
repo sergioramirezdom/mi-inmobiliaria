@@ -373,27 +373,12 @@ with col2:
                                                 nuevas_propiedades = session.exec(stmt).all()
 
                                                 if nuevas_propiedades:
-                                                    # Create dataframe for display
-                                                    propiedades_data = []
-                                                    for prop in nuevas_propiedades:
-                                                        propiedades_data.append({
-                                                            "Título": prop.titulo or "Sin título",
-                                                            "Precio": f"€{prop.precio:,.0f}" if prop.precio else "N/A",
-                                                            "m²": f"{prop.superficie_m2:.0f}" if prop.superficie_m2 else "N/A",
-                                                            "Hab.": str(prop.habitaciones) if prop.habitaciones else "N/A",
-                                                            "Baños": str(prop.banos) if prop.banos else "N/A",
-                                                            "Dirección": prop.direccion or "N/A",
-                                                            "URL": prop.url_original[:50] + "..." if len(prop.url_original) > 50 else prop.url_original,
-                                                        })
-
-                                                    st.dataframe(
-                                                        propiedades_data,
-                                                        use_container_width=True,
-                                                        hide_index=True,
-                                                        column_config={
-                                                            "URL": st.column_config.LinkColumn("URL"),
-                                                        }
-                                                    )
+                                                    for prop in nuevas_propiedades[:10]:
+                                                        titulo = prop.titulo or "Sin título"
+                                                        precio = f"€{prop.precio:,.0f}" if prop.precio else "N/A"
+                                                        m2 = f"{prop.superficie_m2:.0f}m²" if prop.superficie_m2 else "N/A"
+                                                        hab = f"{prop.habitaciones} hab" if prop.habitaciones else ""
+                                                        st.caption(f"• **{titulo[:60]}** — {precio} • {m2} {hab}")
 
                                         except Exception as e:
                                             logger.warning(f"Error mostrando propiedades: {e}")

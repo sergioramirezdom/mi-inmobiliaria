@@ -4,6 +4,10 @@ import asyncio
 import logging
 from datetime import datetime, timedelta
 from typing import Optional, List
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from sqlmodel import Session, select
 
