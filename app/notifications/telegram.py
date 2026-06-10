@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from db.models import Propiedad, FiltroAlerta, Fuente
 from .filter_matcher import FilterMatcher
+from config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -22,14 +23,14 @@ class TelegramNotifier:
 
     def __init__(self):
         """Initialize Telegram notifier."""
-        self.token = os.getenv("TELEGRAM_BOT_TOKEN")
-        self.chat_id = os.getenv("TELEGRAM_CHAT_ID")
+        self.token = settings.TELEGRAM_TOKEN
+        self.chat_id = settings.TELEGRAM_CHAT_ID
         self.api_url = f"https://api.telegram.org/bot{self.token}"
 
         if not self.token or not self.chat_id:
             logger.warning(
                 "⚠️ Telegram credentials not configured. "
-                "Set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID in .env"
+                "Set TELEGRAM_TOKEN and TELEGRAM_CHAT_ID in .env or st.secrets"
             )
 
     async def send_message(self, text: str) -> bool:
