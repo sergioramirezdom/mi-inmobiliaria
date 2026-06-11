@@ -75,7 +75,8 @@ class ScraperConfig:
 
     # Pagination settings
     pagination_param: str = "pag"            # URL param name for page number
-    pagination_start: int = 1               # First page value (default 1, use 0 for 0-indexed)
+    pagination_start: int = 1               # First page param value (page 2 onwards)
+    pagination_skip_first: bool = False     # If True, page 1 uses URL as-is (no param added)
     use_results_per_page: bool = True        # Whether to add &res=N to pagination URL
     max_pages: Optional[int] = None         # Override max pages to scrape
 
@@ -125,6 +126,7 @@ class ScraperConfig:
                 detail_scraper_type=data.get("detail_scraper_type", None),
                 pagination_param=data.get("pagination_param", "pag"),
                 pagination_start=data.get("pagination_start", 1),
+                pagination_skip_first=data.get("pagination_skip_first", False),
                 use_results_per_page=data.get("use_results_per_page", True),
                 max_pages=data.get("max_pages", None),
             )

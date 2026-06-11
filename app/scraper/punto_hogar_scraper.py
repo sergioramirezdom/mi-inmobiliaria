@@ -4,7 +4,7 @@ import logging
 import re
 import sys
 from pathlib import Path
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 import httpx
 from bs4 import BeautifulSoup
@@ -15,6 +15,14 @@ from .config import ScraperConfig
 logger = logging.getLogger(__name__)
 
 BASE_URL = "https://www.puntohogarinmobiliaria.com"
+
+BROWSER_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "es-ES,es;q=0.9",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Referer": BASE_URL,
+}
 
 
 class PuntoHogarScraper:
@@ -30,14 +38,10 @@ class PuntoHogarScraper:
         data: Dict[str, Any] = {"url_original": url, "activa": True}
 
         try:
-            async with httpx.AsyncClient() as client:
-                response = await client.get(
-                    url,
-                    headers={"User-Agent": self.config.user_agent},
-                    timeout=self.config.timeout,
-                    follow_redirects=True,
-                )
+            async with httpx.AsyncClient(follow_redirects=True) as client:
+                response = await client.get(url, headers=BROWSER_HEADERS, timeout=self.config.timeout)
                 if response.status_code != 200:
+                    logger.warning(f"HTTP {response.status_code} for {url}")
                     return data
                 html = response.text
         except Exception as e:
@@ -45,11 +49,12 @@ class PuntoHogarScraper:
             return data
 
         soup = BeautifulSoup(html, "lxml")
+        page_text = soup.get_text(" ", strip=True)
 
         # Sold detection
-        page_text = soup.get_text(" ", strip=True).lower()
+        lower_text = page_text.lower()
         for keyword in ("vendido", "vendida", "reservado", "reservada"):
-            if keyword in page_text:
+            if keyword in lower_text:
                 data["activa"] = False
                 data["estado"] = keyword.capitalize()
                 return data
@@ -76,15 +81,14 @@ class PuntoHogarScraper:
             elif "baño" in label:
                 data["banos"] = _parse_int(value)
             elif "garaje" in label:
-                data["garaje"] = "sí" in value.lower() or "si" in value.lower()
+                v = value.lower()
+                data["garaje"] = "sí" in v or "si" in v
             elif "año" in label and "construc" in label:
                 data["estado"] = f"Año construcción: {value}"
             elif "tipo" in label:
                 data["tipo_propiedad"] = value.lower()
             elif "planta" in label:
                 data["planta"] = _parse_int(value)
-            elif "referencia" in label or "ref" in label:
-                pass  # skip reference number
 
         # Description
         desc_heading = soup.find(string=re.compile(r"[Dd]escripci[oó]n"))
@@ -95,21 +99,12 @@ class PuntoHogarScraper:
                 if sibling:
                     data["descripcion"] = sibling.get_text(strip=True)[:2000]
 
-        # Location: extract municipality from page
-        location_patterns = [
-            r"El Puerto de Santa Mar[íi]a",
-            r"Puerto de Santa Mar[íi]a",
-        ]
-        for pattern in location_patterns:
-            match = re.search(pattern, html, re.IGNORECASE)
-            if match:
-                data["municipio"] = "El Puerto de Santa María"
-                break
+        data["municipio"] = "El Puerto de Santa María"
 
         return data
 
 
-def _parse_price(text: str) -> float | None:
+def _parse_price(text: str) -> Optional[float]:
     text = text.replace(".", "").replace(",", ".").replace("€", "").replace("/mes", "").strip()
     try:
         return float(re.sub(r"[^\d.]", "", text))
@@ -117,7 +112,7 @@ def _parse_price(text: str) -> float | None:
         return None
 
 
-def _parse_float(text: str) -> float | None:
+def _parse_float(text: str) -> Optional[float]:
     match = re.search(r"[\d.,]+", text)
     if not match:
         return None
@@ -128,6 +123,6 @@ def _parse_float(text: str) -> float | None:
         return None
 
 
-def _parse_int(text: str) -> int | None:
+def _parse_int(text: str) -> Optional[int]:
     match = re.search(r"\d+", text)
     return int(match.group()) if match else None

@@ -95,10 +95,13 @@ class PaginatedScraper:
                 self.logger.info(f"{'='*80}")
 
                 # Build URL with pagination parameters
-                pagination_param = fuente_config.pagination_param
-                pagination_value = fuente_config.pagination_start + (page - 1)
-                separator = "&" if "?" in fuente.url else "?"
-                page_url = f"{fuente.url}{separator}{pagination_param}={pagination_value}"
+                if page == 1 and fuente_config.pagination_skip_first:
+                    page_url = fuente.url
+                else:
+                    pagination_param = fuente_config.pagination_param
+                    pagination_value = fuente_config.pagination_start + (page - 1)
+                    separator = "&" if "?" in fuente.url else "?"
+                    page_url = f"{fuente.url}{separator}{pagination_param}={pagination_value}"
                 if fuente_config.use_results_per_page:
                     page_url += f"&res={results_per_page}"
 
