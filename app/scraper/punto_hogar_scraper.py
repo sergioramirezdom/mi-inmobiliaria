@@ -20,7 +20,6 @@ BROWSER_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     "Accept-Language": "es-ES,es;q=0.9",
-    "Accept-Encoding": "gzip, deflate, br",
     "Referer": BASE_URL,
 }
 
@@ -59,45 +58,48 @@ class PuntoHogarScraper:
                 data["estado"] = keyword.capitalize()
                 return data
 
-        # Title
-        h1 = soup.find("h1")
-        if h1:
-            data["titulo"] = h1.get_text(strip=True)
+        # Price
+        price_el = soup.select_one(".precio-destacado")
+        if price_el:
+            data["precio"] = _parse_price(price_el.get_text(strip=True))
 
-        # Characteristics table: <tr><td>Label</td><td>Value</td></tr>
-        for row in soup.find_all("tr"):
-            cells = row.find_all("td")
-            if len(cells) < 2:
+        # Characteristics: div.detalle-item > span.detalle-label + span.detalle-valor
+        for item in soup.select(".detalle-item"):
+            label_el = item.select_one(".detalle-label")
+            valor_el = item.select_one(".detalle-valor")
+            if not label_el or not valor_el:
                 continue
-            label = cells[0].get_text(strip=True).lower()
-            value = cells[1].get_text(strip=True)
+            label = label_el.get_text(strip=True).lower()
+            value = valor_el.get_text(strip=True)
 
-            if "precio" in label:
-                data["precio"] = _parse_price(value)
-            elif "tamaño" in label or "superficie" in label:
+            if "superficie" in label or "m²" in label or "tamaño" in label:
                 data["superficie_m2"] = _parse_float(value)
-            elif "dormitorio" in label or "habitacion" in label:
+            elif "dormitorio" in label or "habitaci" in label:
                 data["habitaciones"] = _parse_int(value)
             elif "baño" in label:
                 data["banos"] = _parse_int(value)
-            elif "garaje" in label:
+            elif "garaje" in label or "parking" in label:
                 v = value.lower()
-                data["garaje"] = "sí" in v or "si" in v
-            elif "año" in label and "construc" in label:
-                data["estado"] = f"Año construcción: {value}"
+                data["garaje"] = v not in ("no", "")
             elif "tipo" in label:
                 data["tipo_propiedad"] = value.lower()
             elif "planta" in label:
                 data["planta"] = _parse_int(value)
 
-        # Description
+        # Build title from scraped tipo (site has no useful title element)
+        tipo = data.get("tipo_propiedad", "Inmueble").capitalize()
+        data["titulo"] = f"{tipo} en El Puerto de Santa María"
+
+        # Description — look for a text block after a "Descripción" heading
         desc_heading = soup.find(string=re.compile(r"[Dd]escripci[oó]n"))
         if desc_heading:
             parent = desc_heading.find_parent()
             if parent:
                 sibling = parent.find_next_sibling()
                 if sibling:
-                    data["descripcion"] = sibling.get_text(strip=True)[:2000]
+                    text = sibling.get_text(" ", strip=True)
+                    if len(text) > 20:
+                        data["descripcion"] = text[:2000]
 
         data["municipio"] = "El Puerto de Santa María"
 

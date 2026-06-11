@@ -261,7 +261,6 @@ class ScraperBase(ABC):
                     "User-Agent": self.config.user_agent,
                     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
                     "Accept-Language": "es-ES,es;q=0.9,en;q=0.8",
-                    "Accept-Encoding": "gzip, deflate, br",
                     "Connection": "keep-alive",
                 }
                 default_headers.update(self.config.headers or {})
