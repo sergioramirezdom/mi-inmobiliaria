@@ -1,17 +1,76 @@
 """Página de gestión de fuentes (URLs de inmobiliarias)."""
 
+import json
 import streamlit as st
 import logging
 import sys
 import asyncio
 from pathlib import Path
-from datetime import datetime
 from urllib.parse import urlparse
 from sqlmodel import Session, select
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 logger = logging.getLogger(__name__)
+
+# ── Scraper detail-type templates ────────────────────────────────────────────
+
+DETAIL_SCRAPER_OPTIONS = [
+    ("Automático (genérico)", None),
+    ("Puerto Inmobiliaria", "puerto"),
+    ("Mobilia", "mobilia"),
+    ("Punto Hogar", "puntohogar"),
+    ("Guadalete", "guadalete"),
+]
+
+DETAIL_SCRAPER_LABELS = {v: label for label, v in DETAIL_SCRAPER_OPTIONS}
+
+SCRAPER_CONFIG_TEMPLATES = {
+    "puntohogar": {
+        "detail_scraper_type": "puntohogar",
+        "pagination_param": "pagina",
+        "pagination_skip_first": True,
+        "use_results_per_page": False,
+        "selectors": {"link_href_contains": "inmueble.php?id="},
+    },
+    "guadalete": {
+        "detail_scraper_type": "guadalete",
+        "max_pages": 1,
+        "use_results_per_page": False,
+        "selectors": {"link_href_contains": "/inmuebles/"},
+    },
+    "mobilia": {
+        "detail_scraper_type": "mobilia",
+        "pagination_param": "pag",
+        "pagination_start": 1,
+        "use_results_per_page": True,
+    },
+    "puerto": {
+        "detail_scraper_type": "puerto",
+        "pagination_param": "pag",
+        "pagination_start": 1,
+        "use_results_per_page": True,
+    },
+}
+
+
+def _parse_notas(notas: str | None) -> dict:
+    """Parse notas field as JSON config, return empty dict on failure."""
+    if not notas:
+        return {}
+    try:
+        data = json.loads(notas)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _build_notas(detail_scraper_type: str | None) -> str | None:
+    """Return notas JSON for a given detail_scraper_type using predefined templates."""
+    if not detail_scraper_type:
+        return None
+    template = SCRAPER_CONFIG_TEMPLATES.get(detail_scraper_type)
+    return json.dumps(template, ensure_ascii=False) if template else None
 
 
 @st.cache_resource
@@ -51,7 +110,7 @@ st.set_page_config(
 st.title("📍 Gestión de Fuentes")
 st.markdown("Aquí puedes añadir, editar y eliminar URLs de inmobiliarias para el scraping automático.")
 
-# Validation function
+
 def validate_url(url: str) -> bool:
     """Validate URL format."""
     try:
@@ -59,6 +118,7 @@ def validate_url(url: str) -> bool:
         return all([result.scheme in ['http', 'https'], result.netloc])
     except Exception:
         return False
+
 
 # Create two columns for form and list
 col1, col2 = st.columns([1, 2])
@@ -69,13 +129,13 @@ with col1:
     with st.form("add_fuente_form", clear_on_submit=True):
         nombre = st.text_input(
             "Nombre de la fuente",
-            placeholder="ej: Idealista Madrid",
+            placeholder="ej: Punto Hogar El Puerto",
             help="Un nombre descriptivo para identificar la fuente"
         )
 
         url = st.text_input(
             "URL de la inmobiliaria",
-            placeholder="https://www.idealista.com/venta/viviendas/madrid/",
+            placeholder="https://www.puntohogarinmobiliaria.com/buscador/index.php?municipio=...",
             help="URL completa con protocolo (http/https)"
         )
 
@@ -85,6 +145,19 @@ with col1:
             help="generic: httpx + BeautifulSoup (rápido). playwright: navegador real (más lento pero confiable)"
         )
 
+        detail_type_labels = [label for label, _ in DETAIL_SCRAPER_OPTIONS]
+        detail_type_idx = st.selectbox(
+            "Scraper de detalle",
+            options=range(len(DETAIL_SCRAPER_OPTIONS)),
+            format_func=lambda i: detail_type_labels[i],
+            help="Elige el extractor de datos para las páginas de cada propiedad"
+        )
+        selected_detail_type = DETAIL_SCRAPER_OPTIONS[detail_type_idx][1]
+
+        if selected_detail_type:
+            template = SCRAPER_CONFIG_TEMPLATES.get(selected_detail_type, {})
+            st.caption(f"⚙️ Config: `{json.dumps(template, ensure_ascii=False)}`")
+
         intervalo_horas = st.number_input(
             "Intervalo de scraping (horas)",
             min_value=1,
@@ -93,16 +166,9 @@ with col1:
             help="Cada cuántas horas hacer scraping de esta fuente"
         )
 
-        notas = st.text_area(
-            "Notas (opcional)",
-            placeholder="ej: Esta fuente requiere... / Filtros específicos...",
-            height=100
-        )
-
         submitted = st.form_submit_button("✅ Añadir Fuente", use_container_width=True)
 
         if submitted:
-            # Validation
             if not nombre.strip():
                 st.error("❌ El nombre es obligatorio")
             elif not url.strip():
@@ -112,7 +178,6 @@ with col1:
             else:
                 try:
                     with Session(engine) as session:
-                        # Check if URL already exists
                         existing = FuenteCRUD.get_by_url(session, url)
                         if existing:
                             st.error("⚠️ Esta URL ya existe en la base de datos")
@@ -122,7 +187,7 @@ with col1:
                                 url=url.strip(),
                                 tipo_scraper=tipo_scraper,
                                 intervalo_horas=int(intervalo_horas),
-                                notas=notas.strip() if notas.strip() else None,
+                                notas=_build_notas(selected_detail_type),
                                 activa=True
                             )
                             FuenteCRUD.create(session, new_fuente)
@@ -155,8 +220,10 @@ with col2:
                             st.markdown(f"### {status_icon} {fuente.nombre}")
 
                         with col_status:
-                            tipo_badge = f"🤖 {fuente.tipo_scraper}"
-                            st.caption(tipo_badge)
+                            cfg = _parse_notas(fuente.notas)
+                            dt = cfg.get("detail_scraper_type")
+                            label = DETAIL_SCRAPER_LABELS.get(dt, "genérico")
+                            st.caption(f"🤖 {fuente.tipo_scraper} · {label}")
 
                         with col_actions:
                             col_edit, col_toggle, col_delete = st.columns(3)
@@ -207,14 +274,17 @@ with col2:
                             else:
                                 st.caption("⏱️ Nunca ejecutada")
 
-                        # Notes
-                        if fuente.notas:
-                            st.caption(f"📝 {fuente.notas}")
-
                         # Edit form (shown when edit button is clicked)
                         if st.session_state.get(f"editing_{fuente.id}", False):
                             st.divider()
                             st.subheader("✏️ Editar Fuente")
+
+                            current_cfg = _parse_notas(fuente.notas)
+                            current_dt = current_cfg.get("detail_scraper_type")
+                            current_dt_idx = next(
+                                (i for i, (_, v) in enumerate(DETAIL_SCRAPER_OPTIONS) if v == current_dt),
+                                0
+                            )
 
                             with st.form(f"edit_form_{fuente.id}"):
                                 edit_nombre = st.text_input(
@@ -236,19 +306,20 @@ with col2:
                                     key=f"edit_tipo_{fuente.id}"
                                 )
 
+                                edit_detail_idx = st.selectbox(
+                                    "Scraper de detalle",
+                                    options=range(len(DETAIL_SCRAPER_OPTIONS)),
+                                    format_func=lambda i: detail_type_labels[i],
+                                    index=current_dt_idx,
+                                    key=f"edit_detail_{fuente.id}"
+                                )
+
                                 edit_intervalo = st.number_input(
                                     "Intervalo de scraping (horas)",
                                     min_value=1,
                                     max_value=168,
                                     value=fuente.intervalo_horas,
                                     key=f"edit_intervalo_{fuente.id}"
-                                )
-
-                                edit_notas = st.text_area(
-                                    "Notas (opcional)",
-                                    value=fuente.notas or "",
-                                    height=80,
-                                    key=f"edit_notas_{fuente.id}"
                                 )
 
                                 col_save, col_cancel = st.columns(2)
@@ -263,8 +334,9 @@ with col2:
                                             st.error("❌ URL inválida")
                                         else:
                                             try:
+                                                new_dt = DETAIL_SCRAPER_OPTIONS[edit_detail_idx][1]
+                                                new_notas = _build_notas(new_dt)
                                                 with Session(engine) as s:
-                                                    # Check if new URL already exists (excluding current fuente)
                                                     existing = FuenteCRUD.get_by_url(s, edit_url.strip())
                                                     if existing and existing.id != fuente.id:
                                                         st.error("⚠️ Esta URL ya existe en la base de datos")
@@ -276,7 +348,7 @@ with col2:
                                                             url=edit_url.strip(),
                                                             tipo_scraper=edit_tipo,
                                                             intervalo_horas=int(edit_intervalo),
-                                                            notas=edit_notas.strip() if edit_notas.strip() else None
+                                                            notas=new_notas
                                                         )
                                                         st.success("✅ Cambios guardados")
                                                         st.session_state[f"editing_{fuente.id}"] = False
@@ -321,13 +393,11 @@ with col2:
                                 try:
                                     with Session(engine) as session:
                                         runner = ScraperRunner(session)
-                                        # Run appropriate scraper in sync context
                                         if scraping_mode == "paginated":
                                             stats = asyncio.run(runner.run_paginated_scraper(fuente, results_per_page=48))
                                         else:
                                             stats = asyncio.run(runner.run_scraper(fuente))
 
-                                    # Display results in columns
                                     if scraping_mode == "paginated":
                                         result_cols = st.columns(5)
                                         with result_cols[0]:
@@ -351,17 +421,13 @@ with col2:
                                         with result_cols[3]:
                                             st.metric("⏱️ Tiempo (s)", stats.get("tiempo_segundos", 0))
 
-                                    # Show error details if any
                                     if stats.get("error"):
                                         st.error(f"❌ Error durante scraping: {stats['error']}")
 
-                                    # Display newly scraped properties
                                     nuevas_count = stats.get("nuevas", 0)
                                     if nuevas_count > 0:
                                         st.divider()
                                         st.subheader(f"📊 {nuevas_count} Propiedades Nuevas")
-
-                                        # Get recently added properties (from this scraping)
                                         try:
                                             with Session(engine) as session:
                                                 stmt = (
@@ -371,18 +437,14 @@ with col2:
                                                     .limit(nuevas_count)
                                                 )
                                                 nuevas_propiedades = session.exec(stmt).all()
-
-                                                if nuevas_propiedades:
-                                                    for prop in nuevas_propiedades[:10]:
-                                                        titulo = prop.titulo or "Sin título"
-                                                        precio = f"€{prop.precio:,.0f}" if prop.precio else "N/A"
-                                                        m2 = f"{prop.superficie_m2:.0f}m²" if prop.superficie_m2 else "N/A"
-                                                        hab = f"{prop.habitaciones} hab" if prop.habitaciones else ""
-                                                        st.caption(f"• **{titulo[:60]}** — {precio} • {m2} {hab}")
-
+                                                for prop in nuevas_propiedades[:10]:
+                                                    titulo = prop.titulo or "Sin título"
+                                                    precio = f"€{prop.precio:,.0f}" if prop.precio else "N/A"
+                                                    m2 = f"{prop.superficie_m2:.0f}m²" if prop.superficie_m2 else "N/A"
+                                                    hab = f"{prop.habitaciones} hab" if prop.habitaciones else ""
+                                                    st.caption(f"• **{titulo[:60]}** — {precio} • {m2} {hab}")
                                         except Exception as e:
                                             logger.warning(f"Error mostrando propiedades: {e}")
-                                            st.warning("No se pudieron cargar las propiedades nuevas")
 
                                     st.success("✅ Scraping completado")
                                     st.session_state[f"scraping_{fuente.id}"] = None
@@ -390,7 +452,6 @@ with col2:
                                 except asyncio.TimeoutError:
                                     st.error("⏱️ Timeout: El scraping tardó demasiado tiempo")
                                     st.session_state[f"scraping_{fuente.id}"] = None
-
                                 except Exception as e:
                                     logger.error(f"Error en scraping de {fuente.nombre}: {e}")
                                     st.error(f"❌ Error durante scraping: {str(e)}")
@@ -403,9 +464,8 @@ with col2:
 st.divider()
 st.markdown("""
 ### 💡 Consejos de Uso
+- **Scraper de detalle**: selecciona el específico de cada inmobiliaria para extraer precio, habitaciones, etc.
 - **Probar scraping** (🧪): Ejecuta scraping en la página actual solamente (rápido)
 - **Scraping Completo** (🌐): Ejecuta scraping en TODAS las páginas con paginación (más lento pero más completo)
-- Comienza con "Probar scraping" para validar que funciona antes de usar "Scraping Completo"
-- El scraping automático se ejecuta a las 08:00 y 20:00 UTC según el intervalo configurado
-- El scraping completo es ideal para obtener todas las propiedades disponibles de una fuente
+- El scraping automático se ejecuta cada hora entre las 08:00 y 20:00 (UTC+2)
 """)
