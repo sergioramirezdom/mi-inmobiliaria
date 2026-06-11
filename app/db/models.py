@@ -8,15 +8,10 @@ from sqlalchemy import ARRAY
 # Handle Streamlit reloads: Clean up existing tables from metadata
 # so they can be redefined without "already defined" errors
 try:
-    # Remove existing tables to allow redefinition
-    if 'fuente' in SQLModel.metadata.tables:
-        del SQLModel.metadata.tables['fuente']
-    if 'propiedad' in SQLModel.metadata.tables:
-        del SQLModel.metadata.tables['propiedad']
-    if 'filtroalerta' in SQLModel.metadata.tables:
-        del SQLModel.metadata.tables['filtroalerta']
+    for _t in ('fuente', 'propiedad', 'filtroalerta', 'preciohistorico'):
+        if _t in SQLModel.metadata.tables:
+            del SQLModel.metadata.tables[_t]
 except Exception:
-    # If this fails, tables might not exist yet, which is fine
     pass
 
 
@@ -100,6 +95,15 @@ class Propiedad(SQLModel, table=True):
     favorita: bool = Field(default=False, index=True)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class PrecioHistorico(SQLModel, table=True):
+    """Price history record for a property."""
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    propiedad_id: int = Field(foreign_key="propiedad.id", index=True)
+    precio: float
+    fecha: datetime = Field(default_factory=datetime.utcnow, index=True)
 
 
 class FiltroAlerta(SQLModel, table=True):

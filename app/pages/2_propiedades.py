@@ -11,7 +11,7 @@ import math
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from db.database import engine, PropiedadCRUD
-from db.models import Propiedad
+from db.models import Propiedad, PrecioHistorico
 
 st.set_page_config(page_title="Propiedades", page_icon="🏘️", layout="wide")
 
@@ -37,8 +37,8 @@ def edit_property_dialog(prop):
     """Modal de edición de propiedad."""
     st.caption(f"🔗 {prop.url_original[:80]}...")
 
-    tab_basic, tab_location, tab_features, tab_extra = st.tabs(
-        ["📋 Básico", "📍 Ubicación", "✨ Características", "💰 Económico"]
+    tab_basic, tab_location, tab_features, tab_extra, tab_history = st.tabs(
+        ["📋 Básico", "📍 Ubicación", "✨ Características", "💰 Económico", "📈 Historial"]
     )
 
     with tab_basic:
@@ -105,6 +105,37 @@ def edit_property_dialog(prop):
             precio_comunidad = st.number_input("Gastos comunidad (€/mes)", value=float(prop.precio_comunidad or 0), step=10.0, min_value=0.0)
         with col2:
             precio_ibi = st.number_input("IBI (€/año)", value=float(prop.precio_ibi or 0), step=10.0, min_value=0.0)
+
+    with tab_history:
+        with Session(engine) as hsession:
+            registros = hsession.exec(
+                select(PrecioHistorico)
+                .where(PrecioHistorico.propiedad_id == prop.id)
+                .order_by(PrecioHistorico.fecha.asc())
+            ).all()
+
+        if not registros:
+            st.info("Sin historial de precios todavía. Se registrará automáticamente en el próximo scraping.")
+        else:
+            import pandas as pd
+            df = pd.DataFrame([{"Fecha": r.fecha, "Precio (€)": r.precio} for r in registros])
+            df["Fecha"] = pd.to_datetime(df["Fecha"])
+            df = df.set_index("Fecha")
+
+            precio_min = df["Precio (€)"].min()
+            precio_max = df["Precio (€)"].max()
+            bajada = precio_max - precio_min
+
+            col1, col2, col3 = st.columns(3)
+            col1.metric("Precio actual", f"€{registros[-1].precio:,.0f}")
+            col2.metric("Precio inicial", f"€{registros[0].precio:,.0f}")
+            col3.metric("Bajada máxima", f"-€{bajada:,.0f}" if bajada > 0 else "Sin bajadas")
+
+            st.line_chart(df, y="Precio (€)")
+
+            with st.expander("📋 Tabla completa"):
+                for r in reversed(registros):
+                    st.caption(f"{r.fecha.strftime('%Y-%m-%d %H:%M')} — €{r.precio:,.0f}")
 
     st.divider()
     col_save, col_cancel = st.columns([1, 1])

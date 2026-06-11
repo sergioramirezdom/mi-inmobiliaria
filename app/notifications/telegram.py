@@ -209,6 +209,23 @@ class TelegramNotifier:
 
         return any_sent
 
+    async def send_price_drop_alerts(self, bajadas: list, fuente: Fuente) -> bool:
+        """Send Telegram alerts for price drops."""
+        if not bajadas:
+            return False
+
+        text = f"📉 *Bajadas de precio — {fuente.nombre}*\n\n"
+        for b in bajadas[:10]:
+            text += f"🏠 {b['titulo'][:50]}\n"
+            text += f"   {b['precio_anterior']:,.0f}€ → *{b['precio_nuevo']:,.0f}€* (-{b['bajada_pct']}%)\n"
+            text += f"   🔗 [Ver ficha]({b['url']})\n\n"
+
+        if len(bajadas) > 10:
+            text += f"_...y {len(bajadas) - 10} más_\n"
+
+        text += f"🕐 {datetime.utcnow().strftime('%H:%M UTC')}"
+        return await self.send_message(text)
+
     async def send_no_matches_summary(
         self,
         fuente: Fuente,

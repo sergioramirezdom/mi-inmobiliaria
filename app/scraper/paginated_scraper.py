@@ -14,7 +14,7 @@ from .generic import GenericScraper
 from .puerto_inmobiliaria import PuertoInmobiliariaScraper
 from .mobilia_scraper import MobiliaScraper
 from .config import ScraperConfig
-from db.models import Fuente, Propiedad
+from db.models import Fuente, Propiedad, PrecioHistorico
 
 
 class PaginatedScraper:
@@ -143,7 +143,7 @@ class PaginatedScraper:
                         existing = self.db_session.exec(stmt).first()
 
                         if existing:
-                            # For active duplicates older than 7 days, check if sold
+                            # For active duplicates older than 3 days, re-check detail page
                             if existing.activa and existing.fecha_scraping:
                                 days_old = (datetime.utcnow() - existing.fecha_scraping).days
                                 if days_old >= 3:
@@ -156,6 +156,30 @@ class PaginatedScraper:
                                             self.db_session.commit()
                                             self.logger.info(f"🚫 Marcada como vendida: {existing.titulo}")
                                             stats["vendidas"] = stats.get("vendidas", 0) + 1
+                                        else:
+                                            # Check for price change
+                                            nuevo_precio = details.get("precio")
+                                            if nuevo_precio and existing.precio and abs(nuevo_precio - existing.precio) > 100:
+                                                precio_anterior = existing.precio
+                                                existing.precio_anterior = precio_anterior
+                                                existing.precio = nuevo_precio
+                                                existing.updated_at = datetime.utcnow()
+                                                self.db_session.add(existing)
+                                                historial = PrecioHistorico(propiedad_id=existing.id, precio=nuevo_precio)
+                                                self.db_session.add(historial)
+                                                self.db_session.commit()
+                                                if nuevo_precio < precio_anterior:
+                                                    bajada = round(100 * (precio_anterior - nuevo_precio) / precio_anterior, 1)
+                                                    self.logger.info(f"📉 Bajada {bajada}%: {existing.titulo[:50]} {precio_anterior:.0f}€ → {nuevo_precio:.0f}€")
+                                                    stats.setdefault("bajadas_precio", []).append({
+                                                        "titulo": existing.titulo,
+                                                        "url": existing.url_original,
+                                                        "precio_anterior": precio_anterior,
+                                                        "precio_nuevo": nuevo_precio,
+                                                        "bajada_pct": bajada,
+                                                    })
+                                                else:
+                                                    self.logger.info(f"📈 Subida precio: {existing.titulo[:50]} {precio_anterior:.0f}€ → {nuevo_precio:.0f}€")
                                     except Exception:
                                         pass
                             stats["duplicadas"] += 1
@@ -180,6 +204,11 @@ class PaginatedScraper:
                         self.db_session.add(propiedad)
                         self.db_session.commit()
                         self.db_session.refresh(propiedad)
+
+                        # Save initial price to history
+                        if propiedad.precio:
+                            self.db_session.add(PrecioHistorico(propiedad_id=propiedad.id, precio=propiedad.precio))
+                            self.db_session.commit()
 
                         self.logger.debug(f"✓ Saved new property: {propiedad.titulo}")
                         stats["nuevas"] += 1

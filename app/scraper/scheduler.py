@@ -110,12 +110,17 @@ class ScraperScheduler:
                 # Update ultima_ejecucion in DB
                 self._update_execution_time(fuente, session)
 
-                # Send notifications if there are new properties
+                # Send notifications for new properties
                 if nuevas > 0:
-                    self.logger.warning(
-                        f"🎯 {fuente.nombre}: {nuevas} nuevas propiedades encontradas!"
-                    )
+                    self.logger.info(f"🎯 {fuente_nombre}: {nuevas} nuevas propiedades encontradas!")
                     await self._send_notifications(fuente, stats, session)
+
+                # Send price drop alerts
+                bajadas = stats.get("bajadas_precio", [])
+                if bajadas:
+                    self.logger.info(f"📉 {fuente_nombre}: {len(bajadas)} bajadas de precio detectadas")
+                    notifier = TelegramNotifier()
+                    await notifier.send_price_drop_alerts(bajadas, fuente)
 
         except Exception as e:
             self.logger.error(f"❌ Error scraping {fuente_nombre}: {e}", exc_info=True)
