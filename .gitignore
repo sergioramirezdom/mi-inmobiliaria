@@ -53,6 +53,7 @@ env/
 debug_*.py
 check_*.py
 test_*.py
+app/pages/2_debug.py
 explore_*.py
 quick_*.py
 load_env.py
