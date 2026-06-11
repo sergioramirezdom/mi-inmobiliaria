@@ -51,6 +51,11 @@ def main():
         default=48,
         help="Results per page for pagination (default: 48)"
     )
+    parser.add_argument(
+        "--once",
+        action="store_true",
+        help="Run a single check cycle and exit (for GitHub Actions / cron jobs)"
+    )
 
     args = parser.parse_args()
 
@@ -66,12 +71,16 @@ def main():
     logger.info("=" * 80)
 
     try:
-        # Create and run scheduler
         scheduler = ScraperScheduler(
             check_interval_minutes=args.interval,
             results_per_page=args.results_per_page
         )
-        asyncio.run(scheduler.start_daemon())
+        if args.once:
+            logger.info("▶️  Running single cycle (--once mode)")
+            asyncio.run(scheduler.check_and_scrape())
+            logger.info("✅ Single cycle complete — exiting")
+        else:
+            asyncio.run(scheduler.start_daemon())
 
     except KeyboardInterrupt:
         logger.info("\n" + "=" * 80)

@@ -38,7 +38,7 @@ jobs:
         run: |
           mkdir -p logs
           echo "🚀 Starting automated scraper ($(date -u +'%Y-%m-%d %H:%M:%S UTC'))"
-          python -u scripts/scheduler.py --interval 1 --results-per-page 48
+          python -u scripts/scheduler.py --once --results-per-page 48
         timeout-minutes: 100
 
       - name: Upload logs
