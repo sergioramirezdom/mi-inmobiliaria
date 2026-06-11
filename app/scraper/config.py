@@ -70,8 +70,14 @@ class ScraperConfig:
     auto_detect: bool = True  # Try to detect properties even without selectors
     min_confidence: float = 0.5  # Minimum confidence score for auto-detected fields
 
-    # Detail scraper type: "puerto" | "mobilia" | None (skip detail enrichment)
+    # Detail scraper type: "puerto" | "mobilia" | "puntohogar" | "guadalete" | None
     detail_scraper_type: Optional[str] = None
+
+    # Pagination settings
+    pagination_param: str = "pag"            # URL param name for page number
+    pagination_start: int = 1               # First page value (default 1, use 0 for 0-indexed)
+    use_results_per_page: bool = True        # Whether to add &res=N to pagination URL
+    max_pages: Optional[int] = None         # Override max pages to scrape
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary."""
@@ -117,6 +123,10 @@ class ScraperConfig:
                 auto_detect=data.get("auto_detect", True),
                 min_confidence=data.get("min_confidence", 0.5),
                 detail_scraper_type=data.get("detail_scraper_type", None),
+                pagination_param=data.get("pagination_param", "pag"),
+                pagination_start=data.get("pagination_start", 1),
+                use_results_per_page=data.get("use_results_per_page", True),
+                max_pages=data.get("max_pages", None),
             )
         except TypeError as e:
             raise ValidationException(f"Invalid config data: {e}")

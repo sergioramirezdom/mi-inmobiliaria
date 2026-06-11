@@ -13,6 +13,8 @@ from .base import ScraperBase
 from .generic import GenericScraper
 from .puerto_inmobiliaria import PuertoInmobiliariaScraper
 from .mobilia_scraper import MobiliaScraper
+from .punto_hogar_scraper import PuntoHogarScraper
+from .guadalete_scraper import GuadaleteScraper
 from .config import ScraperConfig
 from db.models import Fuente, Propiedad, PrecioHistorico
 
@@ -68,8 +70,16 @@ class PaginatedScraper:
         detail_type = fuente_config.detail_scraper_type
         if detail_type == "mobilia":
             self.detail_scraper = MobiliaScraper(fuente_config)
-        elif detail_type == "puerto" or detail_type is None:
+        elif detail_type == "puntohogar":
+            self.detail_scraper = PuntoHogarScraper(fuente_config)
+        elif detail_type == "guadalete":
+            self.detail_scraper = GuadaleteScraper(fuente_config)
+        else:
             self.detail_scraper = PuertoInmobiliariaScraper(fuente_config)
+
+        # Config max_pages overrides the parameter
+        if fuente_config.max_pages is not None:
+            max_pages = fuente_config.max_pages
 
         try:
             page = 1
@@ -85,10 +95,12 @@ class PaginatedScraper:
                 self.logger.info(f"{'='*80}")
 
                 # Build URL with pagination parameters
-                if "?" in fuente.url:
-                    page_url = f"{fuente.url}&res={results_per_page}&pag={page}"
-                else:
-                    page_url = f"{fuente.url}?res={results_per_page}&pag={page}"
+                pagination_param = fuente_config.pagination_param
+                pagination_value = fuente_config.pagination_start + (page - 1)
+                separator = "&" if "?" in fuente.url else "?"
+                page_url = f"{fuente.url}{separator}{pagination_param}={pagination_value}"
+                if fuente_config.use_results_per_page:
+                    page_url += f"&res={results_per_page}"
 
                 # Scrape the page
                 try:
