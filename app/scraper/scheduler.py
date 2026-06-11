@@ -79,10 +79,13 @@ class ScraperScheduler:
 
     async def _scrape_fuente(self, fuente: Fuente) -> None:
         """Scrape a single fuente and send notifications based on filters."""
+        fuente_id = fuente.id
+        fuente_nombre = fuente.nombre
         try:
-            self.logger.info(f"🚀 Starting scrape for {fuente.nombre}...")
+            self.logger.info(f"🚀 Starting scrape for {fuente_nombre}...")
 
             with Session(engine) as session:
+                fuente = session.get(Fuente, fuente_id)
                 runner = ScraperRunner(session)
 
                 # Run paginated scraper
@@ -99,7 +102,7 @@ class ScraperScheduler:
                 tiempo = stats.get("tiempo_segundos", 0)
 
                 self.logger.info(
-                    f"✅ Scrape completed: {fuente.nombre} | "
+                    f"✅ Scrape completed: {fuente_nombre} | "
                     f"nuevas={nuevas}, duplicadas={duplicadas}, "
                     f"errores={errores}, páginas={paginas}, tiempo={tiempo}s"
                 )
@@ -115,7 +118,7 @@ class ScraperScheduler:
                     await self._send_notifications(fuente, stats, session)
 
         except Exception as e:
-            self.logger.error(f"❌ Error scraping {fuente.nombre}: {e}", exc_info=True)
+            self.logger.error(f"❌ Error scraping {fuente_nombre}: {e}", exc_info=True)
 
     async def _send_notifications(
         self, fuente: Fuente, stats: dict, session: Session
