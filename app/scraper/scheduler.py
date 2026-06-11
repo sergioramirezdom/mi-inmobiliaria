@@ -77,6 +77,24 @@ class ScraperScheduler:
         except Exception as e:
             self.logger.error(f"Error in check_and_scrape: {e}", exc_info=True)
 
+    async def force_scrape_all(self) -> None:
+        """Force scraping of all active fuentes regardless of intervalo_horas."""
+        try:
+            with Session(engine) as session:
+                stmt = select(Fuente).where(Fuente.activa == True)
+                fuentes = session.exec(stmt).all()
+
+            if not fuentes:
+                self.logger.info("No active fuentes found")
+                return
+
+            self.logger.info(f"🔁 Forcing scrape for {len(fuentes)} fuente(s)...")
+            for fuente in fuentes:
+                await self._scrape_fuente(fuente)
+
+        except Exception as e:
+            self.logger.error(f"Error in force_scrape_all: {e}", exc_info=True)
+
     async def _scrape_fuente(self, fuente: Fuente) -> None:
         """Scrape a single fuente and send notifications based on filters."""
         fuente_id = fuente.id

@@ -56,6 +56,11 @@ def main():
         action="store_true",
         help="Run a single check cycle and exit (for GitHub Actions / cron jobs)"
     )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Force scraping of all active fuentes regardless of intervalo_horas"
+    )
 
     args = parser.parse_args()
 
@@ -76,8 +81,12 @@ def main():
             results_per_page=args.results_per_page
         )
         if args.once:
-            logger.info("▶️  Running single cycle (--once mode)")
-            asyncio.run(scheduler.check_and_scrape())
+            if args.force:
+                logger.info("▶️  Running forced cycle (--once --force mode)")
+                asyncio.run(scheduler.force_scrape_all())
+            else:
+                logger.info("▶️  Running single cycle (--once mode)")
+                asyncio.run(scheduler.check_and_scrape())
             logger.info("✅ Single cycle complete — exiting")
         else:
             asyncio.run(scheduler.start_daemon())
