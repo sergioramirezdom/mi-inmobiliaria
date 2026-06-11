@@ -66,32 +66,24 @@ class GuadaleteScraper:
         if price_match:
             data["precio"] = _parse_price_eu(price_match.group(1))
 
-        # Characteristics: "Label: value" pattern
+        # Characteristics: format is "N Label" e.g. "2 Habitaciones, 1 Baños, 90 sqmt"
         full_text = soup.get_text(" ", strip=True)
-        label_map = {
-            r"[Cc]amas?\s*[:\-]\s*(\d+)": "habitaciones",
-            r"[Hh]abitaciones?\s*[:\-]\s*(\d+)": "habitaciones",
-            r"[Bb]años?\s*[:\-]\s*(\d+)": "banos",
-            r"[Mm]etro[s]?\s+cuadrado[s]?\s*[:\-]\s*([\d.,]+)": "superficie_m2",
-            r"[Ss]uperficie\s*[:\-]\s*([\d.,]+)": "superficie_m2",
-            r"[Ss]qmt\s*[:\-]?\s*([\d.,]+)": "superficie_m2",
-        }
-        for pattern, field in label_map.items():
+        label_map = [
+            (r"(\d+)\s*[Cc]amas?", "habitaciones"),
+            (r"(\d+)\s*[Hh]abitaciones?", "habitaciones"),
+            (r"(\d+)\s*[Bb]años?", "banos"),
+            (r"([\d.,]+)\s*sqmt", "superficie_m2"),
+            (r"([\d.,]+)\s*m²", "superficie_m2"),
+            (r"[Mm]etro[s]?\s+cuadrado[s]?\s*[:\-]\s*([\d.,]+)", "superficie_m2"),
+        ]
+        for pattern, field_name in label_map:
             match = re.search(pattern, full_text)
-            if match and field not in data:
+            if match and field_name not in data:
                 val = match.group(1).replace(",", ".")
                 try:
-                    data[field] = int(float(val)) if field in ("habitaciones", "banos") else float(val)
+                    data[field_name] = int(float(val)) if field_name in ("habitaciones", "banos") else float(val)
                 except (ValueError, TypeError):
                     pass
-
-        # Also search in structured tags for characteristics
-        for tag in soup.find_all(["li", "span", "div", "td", "p"]):
-            text = tag.get_text(strip=True)
-            if re.match(r"^\d+\s*[Hh]abitacion", text):
-                data.setdefault("habitaciones", _parse_int(text))
-            elif re.match(r"^\d+\s*[Bb]año", text):
-                data.setdefault("banos", _parse_int(text))
 
         # Location
         data["municipio"] = "El Puerto de Santa María"

@@ -257,10 +257,19 @@ class ScraperBase(ABC):
             try:
                 self.logger.debug(f"Fetching URL (attempt {attempt + 1}/{self.config.retries}): {url[:60]}...")
 
+                default_headers = {
+                    "User-Agent": self.config.user_agent,
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                    "Accept-Language": "es-ES,es;q=0.9,en;q=0.8",
+                    "Accept-Encoding": "gzip, deflate, br",
+                    "Connection": "keep-alive",
+                }
+                default_headers.update(self.config.headers or {})
+
                 async with httpx.AsyncClient(
                     timeout=self.config.timeout,
                     verify=self.config.verify_ssl,
-                    headers=self.config.headers or {},
+                    headers=default_headers,
                     limits=httpx.Limits(max_keepalive_connections=5),
                     http2=False,
                     mounts={"https://": httpx.AsyncHTTPTransport(http2=False)}
