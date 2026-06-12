@@ -153,6 +153,21 @@ class PaginatedScraper:
                             stats["errores"] += 1
                             continue
 
+                        # Filter by municipio using listing-page title (before fetching detail).
+                        # Uses word-level matching to handle variants like "Puerto de Santa María El".
+                        if fuente_config.municipio_filter:
+                            titulo_listing = raw_data.get("titulo", "")
+                            if titulo_listing:
+                                import unicodedata
+                                def _norm(s):
+                                    return unicodedata.normalize("NFKD", s.lower()).encode("ascii", "ignore").decode()
+                                filter_words = [w for w in _norm(fuente_config.municipio_filter).split() if len(w) > 2]
+                                titulo_norm = _norm(titulo_listing)
+                                if not all(w in titulo_norm for w in filter_words):
+                                    self.logger.info(f"⏭️ Municipio en listado no coincide ({titulo_listing[:50]}), se omite")
+                                    stats["filtradas"] = stats.get("filtradas", 0) + 1
+                                    continue
+
                         # Check if already in DB
                         hash_unico = self.generic_scraper.calculate_hash(url_original)
 
