@@ -173,12 +173,12 @@ class ScraperScheduler:
             )
             nuevas_propiedades = session.exec(stmt).all()
 
-            # Apply filters and collect matches
-            filtro_matches = {}
+            # Apply filters and collect matches: list of (filtro, [propiedades])
+            filtro_matches = []
             for filtro in filtros:
                 matches = FilterMatcher.get_matching_properties(nuevas_propiedades, filtro)
                 if matches:
-                    filtro_matches[filtro] = matches
+                    filtro_matches.append((filtro, matches))
                     self.logger.info(
                         f"🎯 Filter '{filtro.nombre}': {len(matches)} propiedades coinciden"
                     )

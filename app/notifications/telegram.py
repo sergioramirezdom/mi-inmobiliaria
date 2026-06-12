@@ -176,7 +176,7 @@ class TelegramNotifier:
         self,
         fuente: Fuente,
         stats: dict,
-        filtro_matches: dict,  # {FiltroAlerta: [Propiedad]}
+        filtro_matches: list,  # [(FiltroAlerta, [Propiedad])]
     ) -> bool:
         """
         Send comprehensive summary with filter results.
@@ -184,28 +184,24 @@ class TelegramNotifier:
         Args:
             fuente: Source that was scraped
             stats: Overall scraping statistics
-            filtro_matches: Dictionary mapping filters to matching properties
+            filtro_matches: List of (filtro, matching_properties) tuples
 
         Returns:
             True if any message sent
         """
         nuevas = stats.get("nuevas", 0)
 
-        # If no new properties, don't send notifications
         if nuevas == 0:
             logger.debug("No new properties, skipping notifications")
             return False
 
-        # Send main summary
-        filtros_con_matches = [f for f, props in filtro_matches.items() if props]
+        filtros_con_matches = [f for f, _ in filtro_matches]
         await self.send_scraping_summary(stats, fuente, filtros_con_matches)
 
-        # Send detailed alerts for each filter with matches
         any_sent = False
-        for filtro, propiedades in filtro_matches.items():
-            if propiedades:
-                sent = await self.send_property_alerts(propiedades, filtro, fuente)
-                any_sent = any_sent or sent
+        for filtro, propiedades in filtro_matches:
+            sent = await self.send_property_alerts(propiedades, filtro, fuente)
+            any_sent = any_sent or sent
 
         return any_sent
 
