@@ -46,9 +46,11 @@ jobs:
         run: |
           mkdir -p logs
           echo "🚀 Starting automated scraper ($(date -u +'%Y-%m-%d %H:%M:%S UTC'))"
-          FORCE_FLAG=""
-          if [ "${{ github.event.inputs.force }}" = "true" ]; then
-            FORCE_FLAG="--force"
+          # Scheduled runs always force (cron controls frequency)
+          # Manual runs respect the force input (default false)
+          FORCE_FLAG="--force"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ github.event.inputs.force }}" = "false" ]; then
+            FORCE_FLAG=""
           fi
           python -u scripts/scheduler.py --once --results-per-page 48 $FORCE_FLAG
         timeout-minutes: 100
