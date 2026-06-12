@@ -216,6 +216,14 @@ class PaginatedScraper:
                             stats["vendidas"] = stats.get("vendidas", 0) + 1
                             continue
 
+                        # Skip properties from wrong municipality
+                        if fuente_config.municipio_filter:
+                            prop_muni = raw_data.get("municipio", "")
+                            if prop_muni and prop_muni.lower() != fuente_config.municipio_filter.lower():
+                                self.logger.info(f"⏭️ Municipio diferente ({prop_muni}), se omite: {url_original[:60]}")
+                                stats["filtradas"] = stats.get("filtradas", 0) + 1
+                                continue
+
                         # Normalize and save
                         propiedad = self.generic_scraper.normalize_property(raw_data, fuente)
                         self.db_session.add(propiedad)

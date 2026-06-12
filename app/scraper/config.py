@@ -73,6 +73,9 @@ class ScraperConfig:
     # Detail scraper type: "puerto" | "mobilia" | "puntohogar" | "guadalete" | None
     detail_scraper_type: Optional[str] = None
 
+    # If set, skip properties whose scraped municipio doesn't match this value
+    municipio_filter: Optional[str] = None
+
     # Pagination settings
     pagination_param: str = "pag"            # URL param name for page number
     pagination_start: int = 1               # First page param value (page 2 onwards)
@@ -124,6 +127,7 @@ class ScraperConfig:
                 auto_detect=data.get("auto_detect", True),
                 min_confidence=data.get("min_confidence", 0.5),
                 detail_scraper_type=data.get("detail_scraper_type", None),
+                municipio_filter=data.get("municipio_filter", None),
                 pagination_param=data.get("pagination_param", "pag"),
                 pagination_start=data.get("pagination_start", 1),
                 pagination_skip_first=data.get("pagination_skip_first", False),

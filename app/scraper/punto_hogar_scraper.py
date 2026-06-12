@@ -101,7 +101,8 @@ class PuntoHogarScraper:
                     if len(text) > 20:
                         data["descripcion"] = text[:2000]
 
-        data["municipio"] = "El Puerto de Santa María"
+        muni_el = soup.select_one("p#municipio")
+        data["municipio"] = muni_el.get_text(strip=True) if muni_el else "El Puerto de Santa María"
 
         return data
 

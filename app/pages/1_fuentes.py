@@ -32,6 +32,7 @@ SCRAPER_CONFIG_TEMPLATES = {
         "pagination_start": 0,
         "pagination_skip_first": True,
         "use_results_per_page": False,
+        "municipio_filter": "El Puerto de Santa María",
         "selectors": {"link_href_contains": "inmueble.php?id="},
     },
     "guadalete": {
