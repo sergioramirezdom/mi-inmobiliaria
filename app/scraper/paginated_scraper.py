@@ -136,8 +136,10 @@ class PaginatedScraper:
                 self.logger.info(f"Found {len(urls_on_page)} properties on page {page}")
                 stats["urls_encontradas"] += len(urls_on_page)
 
-                # Check if we got fewer properties than expected (indicates last page)
-                if len(urls_on_page) < results_per_page - 5:  # Allow 5 property margin
+                # Check if we got fewer properties than expected (indicates last page).
+                # Only meaningful when use_results_per_page=True; otherwise the site
+                # controls page size and a small count doesn't mean it's the last page.
+                if fuente_config.use_results_per_page and len(urls_on_page) < results_per_page - 5:
                     self.logger.info(f"Page {page} has fewer properties ({len(urls_on_page)} < {results_per_page}), likely last page")
                     will_continue_after = False
                 else:

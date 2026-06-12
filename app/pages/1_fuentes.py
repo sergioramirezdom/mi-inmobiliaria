@@ -29,6 +29,7 @@ SCRAPER_CONFIG_TEMPLATES = {
     "puntohogar": {
         "detail_scraper_type": "puntohogar",
         "pagination_param": "pagina",
+        "pagination_start": 0,
         "pagination_skip_first": True,
         "use_results_per_page": False,
         "selectors": {"link_href_contains": "inmueble.php?id="},
