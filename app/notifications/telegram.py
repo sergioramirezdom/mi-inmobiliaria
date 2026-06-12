@@ -146,7 +146,7 @@ class TelegramNotifier:
 
         # Build message header
         text = f"🏠 *{fuente.nombre} - {filtro.nombre}*\n"
-        text += f"Found {len(propiedades)} matching properties:\n\n"
+        text += f"{len(propiedades)} propiedad(es) encontrada(s):\n\n"
 
         # Add properties (limit to 5 to avoid message length issues)
         for i, prop in enumerate(propiedades[:5], 1):
