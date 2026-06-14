@@ -32,6 +32,7 @@ SCRAPER_CONFIG_TEMPLATES = {
         "pagination_start": 0,
         "pagination_skip_first": True,
         "use_results_per_page": False,
+        "max_pages": 10,
         "municipio_filter": "El Puerto de Santa María",
         "selectors": {
             "property_container": "div.card-content",

@@ -15,6 +15,7 @@ class SelectorsConfig:
 
     property_container: Optional[str] = None
     link_href_contains: Optional[str] = None  # Extract links directly by href pattern (for JS-rendered pages)
+    title: Optional[str] = None
     price: Optional[str] = None
     size: Optional[str] = None
     rooms: Optional[str] = None
