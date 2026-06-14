@@ -21,6 +21,7 @@ DETAIL_SCRAPER_OPTIONS = [
     ("Mobilia", "mobilia"),
     ("Punto Hogar", "puntohogar"),
     ("Guadalete", "guadalete"),
+    ("Jiménez Ruiz", "jimenezruiz"),
 ]
 
 DETAIL_SCRAPER_LABELS = {v: label for label, v in DETAIL_SCRAPER_OPTIONS}
@@ -57,6 +58,18 @@ SCRAPER_CONFIG_TEMPLATES = {
         "pagination_param": "pag",
         "pagination_start": 1,
         "use_results_per_page": True,
+    },
+    "jimenezruiz": {
+        "detail_scraper_type": "jimenezruiz",
+        "max_pages": 1,
+        "pagination_skip_first": True,
+        "use_results_per_page": False,
+        "selectors": {
+            "property_container": "div.listado5_contendor_inmueble",
+            "link": "a",
+            "title": ".listado5_contendor_inmueble_datos_titulo",
+            "description": ".listado5_contendor_inmueble_datos_descripcion",
+        },
     },
 }
 
