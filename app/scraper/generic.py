@@ -59,7 +59,7 @@ class GenericScraper(ScraperBase):
                     if raw_data.get("url_original"):
                         raw_data_list.append(raw_data)
                 except ParsingException as e:
-                    self.logger.warning(f"⚠️ Failed to extract property: {e}")
+                    self.logger.debug(f"Skipped element (no URL): {e}")
                     continue
 
             self.logger.info(f"✓ Scraped {len(raw_data_list)} properties from {fuente.nombre}")

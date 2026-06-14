@@ -119,7 +119,23 @@ def _parse_float(text: str) -> Optional[float]:
     match = re.search(r"[\d.,]+", text)
     if not match:
         return None
-    value = match.group().replace(".", "").replace(",", ".")
+    value = match.group()
+    # Detect format: if only dots and last segment has ≠3 digits → dot is decimal (e.g. "110.58")
+    # If last segment has 3 digits → dot is thousands separator (e.g. "1.234")
+    if "," in value and "." in value:
+        # Both separators: EU format "1.234,56" → dot=thousands, comma=decimal
+        value = value.replace(".", "").replace(",", ".")
+    elif "." in value:
+        parts = value.split(".")
+        if len(parts[-1]) == 3:
+            value = value.replace(".", "")  # thousands: "1.000" → "1000"
+        # else dot is decimal: "110.58" → keep as-is
+    elif "," in value:
+        parts = value.split(",")
+        if len(parts[-1]) == 3:
+            value = value.replace(",", "")  # thousands: "1,000" → "1000"
+        else:
+            value = value.replace(",", ".")  # decimal: "110,58" → "110.58"
     try:
         return float(value)
     except (ValueError, TypeError):
