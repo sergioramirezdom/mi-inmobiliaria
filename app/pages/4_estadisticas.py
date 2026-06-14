@@ -24,6 +24,15 @@ def fmt_price(v):
     return f"€{v:,.0f}"
 
 
+# ── Filtros globales ─────────────────────────────────────────────────────────
+with st.sidebar:
+    st.title("🔍 Filtros")
+    excluir_descartadas = st.checkbox("Excluir descartadas", value=True)
+    solo_favoritas = st.checkbox("Solo favoritas", value=False)
+    st.divider()
+    st.caption("Los filtros afectan a todos los gráficos y tablas.")
+
+
 try:
     with Session(engine) as session:
         # ── KPIs globales ────────────────────────────────────────────────────
@@ -87,8 +96,13 @@ try:
             if r["precio"] and r["precio_anterior"] and r["precio_anterior"] > 0 else None,
             axis=1
         )
-        df_activas = df[df["activa"] == True]
-        df_vendidas = df[df["activa"] == False]
+        # Apply global sidebar filters
+        df_activas = df[df["activa"] == True].copy()
+        if excluir_descartadas:
+            df_activas = df_activas[df_activas["descartada"] == False]
+        if solo_favoritas:
+            df_activas = df_activas[df_activas["favorita"] == True]
+        df_vendidas = df[df["activa"] == False].copy()
 
         # ── Tabs ─────────────────────────────────────────────────────────────
         tab_precios, tab_oferta, tab_vendidas, tab_bajadas, tab_historial = st.tabs([
