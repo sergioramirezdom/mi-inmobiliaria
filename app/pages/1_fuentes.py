@@ -72,12 +72,19 @@ def _parse_notas(notas: str | None) -> dict:
         return {}
 
 
-def _build_notas(detail_scraper_type: str | None) -> str | None:
-    """Return notas JSON for a given detail_scraper_type using predefined templates."""
+def _build_notas(detail_scraper_type: str | None, max_pages_override: int | None = None) -> str | None:
+    """Return notas JSON for a given detail_scraper_type, optionally overriding max_pages."""
     if not detail_scraper_type:
         return None
     template = SCRAPER_CONFIG_TEMPLATES.get(detail_scraper_type)
-    return json.dumps(template, ensure_ascii=False) if template else None
+    if not template:
+        return None
+    config = dict(template)
+    if max_pages_override is not None and max_pages_override > 0:
+        config["max_pages"] = max_pages_override
+    elif max_pages_override == 0:
+        config.pop("max_pages", None)
+    return json.dumps(config, ensure_ascii=False)
 
 
 @st.cache_resource
@@ -161,9 +168,18 @@ with col1:
         )
         selected_detail_type = DETAIL_SCRAPER_OPTIONS[detail_type_idx][1]
 
+        template = SCRAPER_CONFIG_TEMPLATES.get(selected_detail_type, {}) if selected_detail_type else {}
+        template_max = template.get("max_pages", 0)
         if selected_detail_type:
-            template = SCRAPER_CONFIG_TEMPLATES.get(selected_detail_type, {})
-            st.caption(f"⚙️ Config: `{json.dumps(template, ensure_ascii=False)}`")
+            st.caption(f"⚙️ Config base: `{json.dumps(template, ensure_ascii=False)}`")
+
+        max_pages = st.number_input(
+            "Máximo de páginas (0 = sin límite)",
+            min_value=0,
+            max_value=500,
+            value=template_max,
+            help="Limita cuántas páginas se escanean. Útil cuando el sitio no filtra por municipio. 0 = sin límite."
+        )
 
         intervalo_horas = st.number_input(
             "Intervalo de scraping (horas)",
@@ -194,7 +210,7 @@ with col1:
                                 url=url.strip(),
                                 tipo_scraper=tipo_scraper,
                                 intervalo_horas=int(intervalo_horas),
-                                notas=_build_notas(selected_detail_type),
+                                notas=_build_notas(selected_detail_type, int(max_pages)),
                                 activa=True
                             )
                             FuenteCRUD.create(session, new_fuente)
@@ -329,6 +345,15 @@ with col2:
                                     key=f"edit_intervalo_{fuente.id}"
                                 )
 
+                                edit_max_pages = st.number_input(
+                                    "Máximo de páginas (0 = sin límite)",
+                                    min_value=0,
+                                    max_value=500,
+                                    value=current_cfg.get("max_pages", 0),
+                                    key=f"edit_max_pages_{fuente.id}",
+                                    help="Limita cuántas páginas se escanean. 0 = sin límite."
+                                )
+
                                 col_save, col_cancel = st.columns(2)
 
                                 with col_save:
@@ -342,7 +367,7 @@ with col2:
                                         else:
                                             try:
                                                 new_dt = DETAIL_SCRAPER_OPTIONS[edit_detail_idx][1]
-                                                new_notas = _build_notas(new_dt)
+                                                new_notas = _build_notas(new_dt, int(edit_max_pages))
                                                 with Session(engine) as s:
                                                     existing = FuenteCRUD.get_by_url(s, edit_url.strip())
                                                     if existing and existing.id != fuente.id:
