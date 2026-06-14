@@ -175,6 +175,26 @@ class PaginatedScraper:
                         existing = self.db_session.exec(stmt).first()
 
                         if existing:
+                            # Re-enrich if metadata is missing (e.g. saved during a broken run)
+                            if existing.activa and existing.precio is None:
+                                try:
+                                    details = await self.detail_scraper.scrape_property_details(url_original)
+                                    existing.precio = details.get("precio")
+                                    existing.superficie_m2 = details.get("superficie_m2")
+                                    existing.habitaciones = details.get("habitaciones")
+                                    existing.banos = details.get("banos")
+                                    existing.garaje = details.get("garaje")
+                                    existing.tipo_propiedad = details.get("tipo_propiedad")
+                                    existing.descripcion = details.get("descripcion")
+                                    existing.municipio = details.get("municipio")
+                                    if existing.precio:
+                                        self.db_session.add(PrecioHistorico(propiedad_id=existing.id, precio=existing.precio))
+                                    self.db_session.add(existing)
+                                    self.db_session.commit()
+                                    self.logger.info(f"🔄 Re-enriquecida: {existing.titulo[:50]} {existing.precio}€")
+                                except Exception:
+                                    pass
+
                             # For active duplicates older than 3 days, re-check detail page
                             if existing.activa and existing.fecha_scraping:
                                 days_old = (datetime.utcnow() - existing.fecha_scraping).days
