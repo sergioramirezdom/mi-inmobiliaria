@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 from datetime import datetime, UTC
 from sqlmodel import Session, select
-from sqlalchemy import func, distinct
+from sqlalchemy import func, distinct, or_, update as sa_update
 import math
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -20,6 +20,8 @@ if "current_page" not in st.session_state:
     st.session_state.current_page = 1
 if "sort_by" not in st.session_state:
     st.session_state.sort_by = "Más reciente"
+if "bulk_discard_confirm" not in st.session_state:
+    st.session_state.bulk_discard_confirm = False
 
 ITEMS_PER_PAGE = 12
 
@@ -444,10 +446,84 @@ try:
             sort_by = st.selectbox("Ordenar por", list(SORT_OPTIONS.keys()), index=list(SORT_OPTIONS.keys()).index(st.session_state.sort_by))
             st.session_state.sort_by = sort_by
 
+            st.divider()
+
+            # BULK DISCARD
+            st.subheader("🗑️ Descarte masivo")
+
+            bulk_id_stmt = select(Propiedad.id).where(
+                Propiedad.activa == True,
+                Propiedad.descartada == False,
+            )
+            if precio_min > 0:
+                bulk_id_stmt = bulk_id_stmt.where(or_(Propiedad.precio >= precio_min, Propiedad.precio == None))
+            if precio_max > 0:
+                bulk_id_stmt = bulk_id_stmt.where(or_(Propiedad.precio <= precio_max, Propiedad.precio == None))
+            if m2_min > 0:
+                bulk_id_stmt = bulk_id_stmt.where(or_(Propiedad.superficie_m2 >= m2_min, Propiedad.superficie_m2 == None))
+            if m2_max > 0:
+                bulk_id_stmt = bulk_id_stmt.where(or_(Propiedad.superficie_m2 <= m2_max, Propiedad.superficie_m2 == None))
+            if hab_min > 0:
+                bulk_id_stmt = bulk_id_stmt.where(or_(Propiedad.habitaciones >= hab_min, Propiedad.habitaciones == None))
+            if banos_min > 0:
+                bulk_id_stmt = bulk_id_stmt.where(or_(Propiedad.banos >= banos_min, Propiedad.banos == None))
+            if tipo_filter:
+                bulk_id_stmt = bulk_id_stmt.where(Propiedad.tipo_propiedad.in_(tipo_filter))
+            if distrito_filter:
+                bulk_id_stmt = bulk_id_stmt.where(Propiedad.distrito.in_(distrito_filter))
+            if estado_filter:
+                bulk_id_stmt = bulk_id_stmt.where(Propiedad.estado.in_(estado_filter))
+            if filter_ascensor:
+                bulk_id_stmt = bulk_id_stmt.where(Propiedad.ascensor == True)
+            if filter_garaje:
+                bulk_id_stmt = bulk_id_stmt.where(Propiedad.garaje == True)
+            if filter_terraza:
+                bulk_id_stmt = bulk_id_stmt.where(Propiedad.terraza == True)
+            if filter_balcon:
+                bulk_id_stmt = bulk_id_stmt.where(Propiedad.balcon == True)
+            if filter_piscina:
+                bulk_id_stmt = bulk_id_stmt.where(Propiedad.piscina == True)
+            if filter_aire:
+                bulk_id_stmt = bulk_id_stmt.where(Propiedad.aire_acondicionado == True)
+            if search_text:
+                search_bulk = f"%{search_text}%"
+                bulk_id_stmt = bulk_id_stmt.where(
+                    (Propiedad.titulo.ilike(search_bulk)) | (Propiedad.descripcion.ilike(search_bulk))
+                )
+
+            bulk_ids = session.exec(bulk_id_stmt).all()
+            bulk_count = len(bulk_ids)
+
+            if bulk_count > 0:
+                st.caption(f"{bulk_count} propiedades activas sin descartar coinciden con los filtros")
+                if not st.session_state.bulk_discard_confirm:
+                    if st.button(f"🗑️ Descartar todas ({bulk_count})", use_container_width=True):
+                        st.session_state.bulk_discard_confirm = True
+                        st.rerun()
+                else:
+                    st.warning(f"⚠️ ¿Marcar {bulk_count} propiedades como descartadas?")
+                    col_yes, col_no = st.columns(2)
+                    with col_yes:
+                        if st.button("✅ Sí, descartar", type="primary", use_container_width=True, key="bulk_confirm_yes"):
+                            with Session(engine) as bulk_session:
+                                bulk_session.execute(
+                                    sa_update(Propiedad)
+                                    .where(Propiedad.id.in_(bulk_ids))
+                                    .values(descartada=True)
+                                )
+                                bulk_session.commit()
+                            st.session_state.bulk_discard_confirm = False
+                            st.success(f"✅ {bulk_count} descartadas")
+                            st.rerun()
+                    with col_no:
+                        if st.button("❌ Cancelar", use_container_width=True, key="bulk_confirm_no"):
+                            st.session_state.bulk_discard_confirm = False
+                            st.rerun()
+            else:
+                st.caption("Ninguna propiedad activa sin descartar con el filtro actual")
+
         # BUILD QUERY
         stmt = select(Propiedad).where(Propiedad.activa == True)
-
-        from sqlalchemy import or_
 
         if precio_min > 0:
             stmt = stmt.where(
