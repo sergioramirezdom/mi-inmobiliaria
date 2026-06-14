@@ -250,3 +250,21 @@ class TelegramNotifier:
         text += f"🕐 {datetime.utcnow().strftime('%H:%M UTC')}"
 
         return await self.send_message(text)
+
+    async def send_sold_properties_alert(self, vendidas: list) -> bool:
+        """Send Telegram alert listing properties that were just marked as sold."""
+        if not vendidas:
+            return False
+
+        text = f"🚫 *Propiedades vendidas/reservadas* ({len(vendidas)})\n\n"
+        for v in vendidas[:10]:
+            precio_str = f"{v['precio']:,.0f}€" if v.get("precio") else "N/A"
+            text += f"🏠 {v['titulo'][:50]}\n"
+            text += f"   Estado: *{v['estado']}* | Precio: {precio_str}\n"
+            text += f"   🔗 [Ver ficha]({v['url']})\n\n"
+
+        if len(vendidas) > 10:
+            text += f"_...y {len(vendidas) - 10} más_\n"
+
+        text += f"🕐 {datetime.utcnow().strftime('%H:%M UTC')}"
+        return await self.send_message(text)

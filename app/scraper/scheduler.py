@@ -14,6 +14,7 @@ from sqlmodel import Session, select
 from db.database import engine
 from db.models import Fuente, Propiedad, FiltroAlerta
 from .runner import ScraperRunner
+from .sold_checker import check_sold_properties
 from notifications.telegram import TelegramNotifier
 from notifications.filter_matcher import FilterMatcher
 
@@ -76,6 +77,19 @@ class ScraperScheduler:
 
         except Exception as e:
             self.logger.error(f"Error in check_and_scrape: {e}", exc_info=True)
+
+    async def run_sold_check(self) -> None:
+        """Check all active properties and mark sold ones as inactive. Sends Telegram alert."""
+        try:
+            with Session(engine) as session:
+                stats = await check_sold_properties(session)
+
+            vendidas = stats.get("vendidas_lista", [])
+            if vendidas:
+                notifier = TelegramNotifier()
+                await notifier.send_sold_properties_alert(vendidas)
+        except Exception as e:
+            self.logger.error(f"❌ Error en sold check: {e}", exc_info=True)
 
     async def force_scrape_all(self) -> None:
         """Force scraping of all active fuentes regardless of intervalo_horas."""

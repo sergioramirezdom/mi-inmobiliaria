@@ -61,6 +61,11 @@ def main():
         action="store_true",
         help="Force scraping of all active fuentes regardless of intervalo_horas"
     )
+    parser.add_argument(
+        "--check-sold",
+        action="store_true",
+        help="Verify all active properties and mark sold ones as inactive (no scraping)"
+    )
 
     args = parser.parse_args()
 
@@ -80,7 +85,11 @@ def main():
             check_interval_minutes=args.interval,
             results_per_page=args.results_per_page
         )
-        if args.once:
+        if args.check_sold:
+            logger.info("🔍 Running sold properties check...")
+            asyncio.run(scheduler.run_sold_check())
+            logger.info("✅ Sold check complete — exiting")
+        elif args.once:
             if args.force:
                 logger.info("▶️  Running forced cycle (--once --force mode)")
                 asyncio.run(scheduler.force_scrape_all())

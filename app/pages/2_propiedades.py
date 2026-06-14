@@ -190,7 +190,10 @@ def render_property_card(prop):
         col_title, col_actions = st.columns([4, 1])
 
         with col_title:
-            st.markdown(f"### {prop.titulo[:70] if prop.titulo else 'Sin título'}")
+            titulo_display = prop.titulo[:70] if prop.titulo else 'Sin título'
+            if not prop.activa:
+                titulo_display = f"~~{titulo_display}~~ 🚫 {prop.estado or 'Vendida'}"
+            st.markdown(f"### {titulo_display}")
 
         with col_actions:
             # Favorite button
@@ -438,6 +441,7 @@ try:
             st.subheader("👁️ Ver")
             show_viewed = st.checkbox("Vistas", value=True)
             show_discarded = st.checkbox("Descartadas", value=False)
+            show_vendidas = st.checkbox("Vendidas", value=False)
 
             st.divider()
 
@@ -522,8 +526,30 @@ try:
             else:
                 st.caption("Ninguna propiedad activa sin descartar con el filtro actual")
 
+            st.divider()
+
+            # SOLD VERIFICATION
+            st.subheader("🔍 Verificar vendidas")
+            active_count = session.exec(
+                select(func.count(Propiedad.id)).where(Propiedad.activa == True)
+            ).first() or 0
+            st.caption(f"{active_count} propiedades activas a verificar")
+            st.caption("Descarga cada ficha y marca como vendidas las que estén reservadas o vendidas.")
+            if st.button("🔍 Verificar ahora", use_container_width=True, key="verify_sold_btn"):
+                import asyncio
+                from scraper.sold_checker import check_sold_properties as _check_sold
+                with st.spinner(f"Verificando {active_count} propiedades... (puede tardar varios minutos)"):
+                    with Session(engine) as verify_session:
+                        sold_stats = asyncio.run(_check_sold(verify_session))
+                vendidas_n = sold_stats.get("vendidas", 0)
+                errores_n = sold_stats.get("errores", 0)
+                st.success(f"✅ Completado — {vendidas_n} vendidas, {errores_n} errores")
+                st.rerun()
+
         # BUILD QUERY
-        stmt = select(Propiedad).where(Propiedad.activa == True)
+        stmt = select(Propiedad)
+        if not show_vendidas:
+            stmt = stmt.where(Propiedad.activa == True)
 
         if precio_min > 0:
             stmt = stmt.where(
