@@ -80,8 +80,27 @@ async def check_sold_properties(session: Session, limit: Optional[int] = None) -
                 stats["activas"] += 1
 
         except Exception as e:
-            logger.warning(f"[{i}/{stats['total']}] ⚠️ Error en {prop.url_original[:60]}: {e}")
-            stats["errores"] += 1
+            err_str = str(e)
+            # 404 via raise_for_status() → property gone, mark as inactive
+            if "404" in err_str or "Not Found" in err_str:
+                try:
+                    prop.activa = False
+                    prop.estado = "No disponible"
+                    session.add(prop)
+                    session.commit()
+                    logger.info(f"[{i}/{stats['total']}] 🚫 404 No disponible: {prop.titulo[:60]}")
+                    stats["vendidas"] += 1
+                    stats["vendidas_lista"].append({
+                        "titulo": prop.titulo,
+                        "url": prop.url_original,
+                        "precio": prop.precio,
+                        "estado": "No disponible",
+                    })
+                except Exception:
+                    stats["errores"] += 1
+            else:
+                logger.warning(f"[{i}/{stats['total']}] ⚠️ Error en {prop.url_original[:60]}: {e}")
+                stats["errores"] += 1
 
     logger.info(
         f"✅ Verificación completa — vendidas: {stats['vendidas']}, "

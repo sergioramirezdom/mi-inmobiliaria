@@ -61,6 +61,7 @@ SCRAPER_CONFIG_TEMPLATES = {
     },
     "jimenezruiz": {
         "detail_scraper_type": "jimenezruiz",
+        "verify_ssl": False,
         "max_pages": 1,
         "pagination_skip_first": True,
         "use_results_per_page": False,

@@ -69,10 +69,15 @@ class JimenezRuizScraper:
             data["barrio"] = url_match.group(2).replace("-", " ")
 
         try:
-            async with httpx.AsyncClient(follow_redirects=True) as client:
+            async with httpx.AsyncClient(follow_redirects=True, verify=False) as client:
                 response = await client.get(
                     url, headers=BROWSER_HEADERS, timeout=self.config.timeout
                 )
+                if response.status_code == 404:
+                    logger.info(f"HTTP 404 — marcando como no disponible: {url}")
+                    data["activa"] = False
+                    data["estado"] = "No disponible"
+                    return data
                 if response.status_code != 200:
                     logger.warning(f"HTTP {response.status_code} for {url}")
                     return data
