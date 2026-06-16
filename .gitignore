@@ -52,7 +52,9 @@ env/
 # Debug and test scripts (local only)
 debug_*.py
 check_*.py
+# test_*.py excluded only outside tests/ directory
 test_*.py
+!tests/test_*.py
 app/pages/2_debug.py
 explore_*.py
 quick_*.py
