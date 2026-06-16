@@ -80,6 +80,7 @@ try:
             "favorita": p.favorita,
             "descartada": p.descartada,
             "fecha_scraping": p.fecha_scraping,
+            "fecha_baja": p.fecha_baja,
             "ascensor": p.ascensor,
             "garaje": p.garaje,
             "terraza": p.terraza,
@@ -233,24 +234,86 @@ try:
             else:
                 st.subheader(f"🚫 {len(df_vendidas)} propiedades vendidas / reservadas")
 
-                col_a, col_b, col_c = st.columns(3)
-                precio_medio_vendidas = df_vendidas["precio"].mean()
-                m2_medio_vendidas = df_vendidas["superficie_m2"].mean()
-                col_a.metric("Precio medio vendidas", fmt_price(precio_medio_vendidas))
-                col_b.metric("m² medio vendidas", f"{m2_medio_vendidas:.0f} m²" if m2_medio_vendidas else "N/A")
-                col_c.metric("Total vendidas", len(df_vendidas))
+                # ── Calcular días en mercado ──────────────────────────────
+                df_v = df_vendidas.copy()
+                df_v["fecha_scraping"] = pd.to_datetime(df_v["fecha_scraping"])
+                df_v["fecha_baja"] = pd.to_datetime(df_v["fecha_baja"])
+                df_v_tim = df_v.dropna(subset=["fecha_baja"])
+                df_v_tim["dias_mercado"] = (
+                    df_v_tim["fecha_baja"] - df_v_tim["fecha_scraping"]
+                ).dt.days.clip(lower=0)
+
+                # ── KPIs ─────────────────────────────────────────────────
+                col_a, col_b, col_c, col_d = st.columns(4)
+                col_a.metric("Total vendidas", len(df_v))
+                col_b.metric("Precio medio", fmt_price(df_v["precio"].mean()))
+                if not df_v_tim.empty:
+                    col_c.metric("Días en mercado (media)", f"{df_v_tim['dias_mercado'].mean():.0f} días")
+                    col_d.metric("Días en mercado (mediana)", f"{df_v_tim['dias_mercado'].median():.0f} días")
+                else:
+                    col_c.metric("Días en mercado", "Sin datos aún")
+                    col_d.metric("", "")
 
                 st.divider()
+
+                # ── Tiempo en mercado ─────────────────────────────────────
+                if not df_v_tim.empty:
+                    st.subheader("⏱️ Tiempo en mercado")
+
+                    col_a, col_b = st.columns(2)
+                    with col_a:
+                        st.caption("Distribución de días en mercado")
+                        hist_data = df_v_tim["dias_mercado"]
+                        st.bar_chart(hist_data.value_counts(bins=10).sort_index())
+
+                    with col_b:
+                        st.caption("Días en mercado por tipo de propiedad")
+                        tim_tipo = (
+                            df_v_tim.dropna(subset=["tipo_propiedad"])
+                            .groupby("tipo_propiedad")["dias_mercado"]
+                            .agg(["mean", "median", "count"])
+                            .rename(columns={"mean": "Media (días)", "median": "Mediana (días)", "count": "Nº"})
+                            .sort_values("Media (días)")
+                        )
+                        tim_tipo["Media (días)"] = tim_tipo["Media (días)"].map(lambda v: f"{v:.0f}")
+                        tim_tipo["Mediana (días)"] = tim_tipo["Mediana (días)"].map(lambda v: f"{v:.0f}")
+                        if not tim_tipo.empty:
+                            st.dataframe(tim_tipo, use_container_width=True)
+
+                    st.caption("Días en mercado por barrio (mín. 2 propiedades)")
+                    tim_barrio = (
+                        df_v_tim.dropna(subset=["barrio"])
+                        .groupby("barrio")["dias_mercado"]
+                        .agg(["mean", "count"])
+                        .rename(columns={"mean": "Media días", "count": "Nº"})
+                    )
+                    tim_barrio = tim_barrio[tim_barrio["Nº"] >= 2].sort_values("Media días")
+                    if not tim_barrio.empty:
+                        tim_barrio["Media días"] = tim_barrio["Media días"].map(lambda v: f"{v:.0f}")
+                        st.dataframe(tim_barrio, use_container_width=True)
+                    else:
+                        st.info("Aún no hay suficientes vendidas por barrio para comparar.")
+
+                    st.divider()
+
                 st.subheader("Por tipo de propiedad")
-                tipo_v = df_vendidas["tipo_propiedad"].value_counts().dropna()
+                tipo_v = df_v["tipo_propiedad"].value_counts().dropna()
                 if not tipo_v.empty:
                     st.bar_chart(tipo_v)
 
                 st.subheader("Listado de propiedades vendidas")
-                cols_show = ["titulo", "precio", "superficie_m2", "habitaciones", "tipo_propiedad", "origen_web"]
-                df_v_display = df_vendidas[cols_show].copy()
+                cols_show = ["titulo", "precio", "superficie_m2", "habitaciones", "tipo_propiedad", "origen_web", "fecha_scraping", "fecha_baja"]
+                df_v_display = df_v[cols_show].copy()
                 df_v_display["precio"] = df_v_display["precio"].map(lambda v: fmt_price(v) if v else "N/A")
-                df_v_display.columns = ["Título", "Precio", "m²", "Hab.", "Tipo", "Fuente"]
+                df_v_display["fecha_scraping"] = df_v_display["fecha_scraping"].dt.strftime("%Y-%m-%d")
+                df_v_display["fecha_baja"] = df_v_display["fecha_baja"].dt.strftime("%Y-%m-%d").fillna("—")
+                if not df_v_tim.empty:
+                    df_v_display = df_v_display.join(df_v_tim["dias_mercado"].rename("Días"))
+                df_v_display.columns = (
+                    ["Título", "Precio", "m²", "Hab.", "Tipo", "Fuente", "Entrada", "Baja", "Días en mercado"]
+                    if not df_v_tim.empty else
+                    ["Título", "Precio", "m²", "Hab.", "Tipo", "Fuente", "Entrada", "Baja"]
+                )
                 st.dataframe(df_v_display, use_container_width=True)
 
         # ── TAB 4: BAJADAS DE PRECIO ─────────────────────────────────────────
