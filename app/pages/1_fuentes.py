@@ -53,6 +53,9 @@ SCRAPER_CONFIG_TEMPLATES = {
         "pagination_param": "pag",
         "pagination_start": 1,
         "use_results_per_page": True,
+        "selectors": {
+            "link_href_contains": "/ref-",
+        },
     },
     "puerto": {
         "detail_scraper_type": "puerto",
