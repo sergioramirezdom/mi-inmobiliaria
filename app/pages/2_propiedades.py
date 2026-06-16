@@ -12,6 +12,12 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from db.database import engine, PropiedadCRUD
 from db.models import Propiedad, PrecioHistorico
+from utils.calculadora import (
+    calcular_compraventa,
+    calcular_gastos_hipoteca,
+    calcular_aportacion_necesaria,
+    calcular_hipoteca,
+)
 
 st.set_page_config(page_title="Propiedades", page_icon="🏘️", layout="wide")
 
@@ -183,6 +189,99 @@ def edit_property_dialog(prop):
             st.rerun()
 
 
+@st.dialog("🧮 Calculadora", width="large")
+def calculadora_modal(prop):
+    """Modal de calculadora financiera pre-rellenada con el precio de la propiedad."""
+    precio_default = float(prop.precio or 200_000)
+    st.caption(f"📍 {prop.titulo[:70]}")
+
+    precio = st.number_input("Precio (€)", min_value=0.0, value=precio_default, step=5_000.0, format="%.0f")
+    itp_pct = st.selectbox("ITP", options=[3.5, 6.0, 7.0], index=2, format_func=lambda v: f"{v}%")
+
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        notaria = st.number_input("Notaría (€)", min_value=0.0, value=700.0, step=50.0, format="%.0f")
+    with col2:
+        registro = st.number_input("Registro (€)", min_value=0.0, value=350.0, step=50.0, format="%.0f")
+    with col3:
+        agencia_pct = st.number_input("Agencia (%)", min_value=0.0, value=0.0, step=0.5, format="%.1f")
+
+    st.subheader("B) Gastos hipotecarios")
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        gestoria = st.number_input("Gestoría (€)", min_value=0.0, value=350.0, step=50.0, format="%.0f")
+        comision_apertura = st.number_input("Comisión apertura (€)", min_value=0.0, value=0.0, step=100.0, format="%.0f")
+    with col2:
+        tasacion = st.number_input("Tasación (€)", min_value=0.0, value=450.0, step=50.0, format="%.0f")
+        registro_hip = st.number_input("Registro hipoteca (€)", min_value=0.0, value=0.0, step=50.0, format="%.0f")
+    with col3:
+        ajd_pct = st.number_input("AJD (%)", min_value=0.0, value=1.0, step=0.1, format="%.1f")
+
+    st.subheader("💰 Financiación")
+    modo = st.radio("Modo aportación", ["Manual", "80%", "90%", "100%"], horizontal=True, key=f"modo_modal_{prop.id}")
+
+    st.subheader("🏦 Hipoteca")
+    col1, col2 = st.columns(2)
+    with col1:
+        tipo_base = st.number_input("Tipo base (%)", min_value=0.0, value=3.0, step=0.1, format="%.2f", key=f"tipo_modal_{prop.id}")
+    with col2:
+        plazo_anos = st.slider("Plazo (años)", 5, 40, 30, key=f"plazo_modal_{prop.id}")
+
+    bonificaciones_modal = st.data_editor(
+        [{"Concepto": "", "Reducción (%)": 0.25}],
+        num_rows="dynamic",
+        use_container_width=True,
+        key=f"bon_modal_{prop.id}",
+    )
+    total_bonificacion = sum(r.get("Reducción (%)", 0) for r in bonificaciones_modal if r.get("Reducción (%)"))
+    tipo_final = max(tipo_base - total_bonificacion, 0.0)
+
+    # Cálculos
+    gastos_a = calcular_compraventa(precio, itp_pct, notaria, registro, agencia_pct)
+    total_a = gastos_a["total_a"]
+
+    financiacion_map = {"Manual": None, "80%": 80.0, "90%": 90.0, "100%": 100.0}
+    financiacion_pct = financiacion_map[modo]
+
+    if financiacion_pct is not None:
+        prestamo_calculado = round(precio * financiacion_pct / 100, 2)
+    else:
+        prestamo_calculado = precio  # placeholder
+
+    gastos_b = calcular_gastos_hipoteca(prestamo_calculado, comision_apertura, gestoria, tasacion, registro_hip, ajd_pct)
+    total_b = gastos_b["total_b"]
+
+    if financiacion_pct is not None:
+        aportacion = calcular_aportacion_necesaria(precio, financiacion_pct, total_a, total_b)
+        prestamo_calculado = round(precio * financiacion_pct / 100, 2)
+    else:
+        aportacion = st.number_input("Aportación inicial (€)", min_value=0.0, value=precio * 0.2, step=1_000.0, format="%.0f", key=f"aport_modal_{prop.id}")
+        prestamo_calculado = max(precio + total_a + total_b - aportacion, 0.0)
+        gastos_b = calcular_gastos_hipoteca(prestamo_calculado, comision_apertura, gestoria, tasacion, registro_hip, ajd_pct)
+        total_b = gastos_b["total_b"]
+
+    coste_total = precio + total_a + total_b
+    hip = calcular_hipoteca(prestamo_calculado, tipo_final, plazo_anos) if prestamo_calculado > 0 else None
+
+    st.divider()
+    st.subheader("📊 Resumen")
+
+    if financiacion_pct is not None:
+        st.info(f"💰 Con financiación del **{financiacion_pct:.0f}%**, necesitas al menos **€{aportacion:,.0f}** de ahorros")
+
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Gastos A+B", f"€{total_a + total_b:,.0f}")
+    col2.metric("Coste total", f"€{coste_total:,.0f}")
+    col3.metric("Préstamo", f"€{prestamo_calculado:,.0f}")
+
+    if hip:
+        st.metric("📅 Cuota mensual", f"€{hip['cuota_mensual']:,.2f}",
+                  help=f"Tipo {tipo_final:.2f}% · {plazo_anos} años")
+        c1, c2 = st.columns(2)
+        c1.metric("Total pagado", f"€{hip['total_pagado']:,.0f}")
+        c2.metric("Total intereses", f"€{hip['total_intereses']:,.0f} ({hip['pct_intereses']:.1f}%)")
+
+
 def render_property_card(prop):
     """Renderizar tarjeta de propiedad con HTML/Markdown."""
     with st.container(border=True):
@@ -301,7 +400,7 @@ def render_property_card(prop):
                     st.caption(f"IBI: €{prop.precio_ibi}/año")
 
         # Action buttons
-        col_btn1, col_btn2, col_btn3, col_btn4 = st.columns(4)
+        col_btn1, col_btn2, col_btn3, col_btn4, col_btn5 = st.columns(5)
 
         with col_btn1:
             view_btn = st.button(
@@ -320,13 +419,17 @@ def render_property_card(prop):
                 edit_property_dialog(prop)
 
         with col_btn3:
+            if st.button("🧮", key=f"calc_{prop.id}", use_container_width=True, help="Calcular gastos e hipoteca"):
+                calculadora_modal(prop)
+
+        with col_btn4:
             st.link_button(
                 "🔗",
                 prop.url_original,
                 use_container_width=True
             )
 
-        with col_btn4:
+        with col_btn5:
             discard_btn = st.button(
                 "❌ Descartado" if prop.descartada else "❌",
                 key=f"discard_{prop.id}",
