@@ -6,13 +6,14 @@ from typing import Dict, Any, Optional
 
 from sqlmodel import Session, select
 
-from db.models import Propiedad, Fuente
+from db.models import Propiedad, Fuente, PrecioHistorico
 from .config import ScraperConfig
 from .puerto_inmobiliaria import PuertoInmobiliariaScraper
 from .mobilia_scraper import MobiliaScraper
 from .punto_hogar_scraper import PuntoHogarScraper
 from .guadalete_scraper import GuadaleteScraper
 from .puertopiso_scraper import PuertoPisoScraper
+from .manual_scraper import ManualScraper
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +27,8 @@ def _get_scraper(detail_type: Optional[str], config: ScraperConfig):
         return GuadaleteScraper(config)
     elif detail_type == "puertopiso":
         return PuertoPisoScraper(config)
+    elif detail_type == "manual_auto":
+        return ManualScraper(config)
     return PuertoInmobiliariaScraper(config)
 
 
@@ -83,6 +86,29 @@ async def check_sold_properties(session: Session, limit: Optional[int] = None) -
             else:
                 logger.debug(f"[{i}/{stats['total']}] ✅ Activa: {prop.titulo[:60]}")
                 stats["activas"] += 1
+                # Price change detection for manual properties
+                if config.detail_scraper_type == "manual_auto":
+                    nuevo_precio = details.get("precio")
+                    if nuevo_precio and prop.precio and abs(nuevo_precio - prop.precio) > 100:
+                        precio_anterior = prop.precio
+                        prop.precio_anterior = precio_anterior
+                        prop.precio = nuevo_precio
+                        prop.updated_at = datetime.utcnow()
+                        session.add(prop)
+                        session.add(PrecioHistorico(propiedad_id=prop.id, precio=nuevo_precio))
+                        session.commit()
+                        if nuevo_precio < precio_anterior:
+                            bajada = round(100 * (precio_anterior - nuevo_precio) / precio_anterior, 1)
+                            logger.info(f"[{i}/{stats['total']}] 📉 Bajada {bajada}%: {prop.titulo[:50]} {precio_anterior:.0f}€ → {nuevo_precio:.0f}€")
+                            stats.setdefault("bajadas_precio", []).append({
+                                "titulo": prop.titulo,
+                                "url": prop.url_original,
+                                "precio_anterior": precio_anterior,
+                                "precio_nuevo": nuevo_precio,
+                                "bajada_pct": bajada,
+                            })
+                        else:
+                            logger.info(f"[{i}/{stats['total']}] 📈 Subida precio: {prop.titulo[:50]} {precio_anterior:.0f}€ → {nuevo_precio:.0f}€")
 
         except Exception as e:
             err_str = str(e)
