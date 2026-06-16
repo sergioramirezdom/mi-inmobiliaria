@@ -21,6 +21,112 @@ from utils.calculadora import (
 
 st.set_page_config(page_title="Propiedades", page_icon="🏘️", layout="wide")
 
+
+def _get_or_create_fuente_manual(session) -> int:
+    from sqlmodel import select
+    from db.models import Fuente
+    fuente = session.exec(select(Fuente).where(Fuente.nombre == "Manual")).first()
+    if not fuente:
+        fuente = Fuente(
+            nombre="Manual",
+            url="manual://manual",
+            tipo_scraper="generic",
+            activa=False,
+            intervalo_horas=24,
+            notas='{"detail_scraper_type": "manual_auto"}',
+        )
+        session.add(fuente)
+        session.commit()
+        session.refresh(fuente)
+    return fuente.id
+
+
+@st.dialog("➕ Añadir propiedad por URL", width="large")
+def add_url_dialog(session):
+    """Dialog to add a property by URL with auto-extraction."""
+    import asyncio
+    import hashlib
+    from urllib.parse import urlparse
+    from datetime import datetime
+    from scraper.url_extractor import extract_from_url
+    from db.models import Propiedad, PrecioHistorico
+
+    # Initialize state
+    if "add_url_extracted" not in st.session_state:
+        st.session_state["add_url_extracted"] = {}
+    if "add_url_value" not in st.session_state:
+        st.session_state["add_url_value"] = ""
+
+    extracted = st.session_state["add_url_extracted"]
+
+    # Step 1: URL input
+    url = st.text_input("URL de la propiedad", value=st.session_state["add_url_value"], placeholder="https://mbfinca.com/inmueble/...")
+    st.session_state["add_url_value"] = url
+
+    if st.button("🔍 Extraer datos", disabled=not url.strip()):
+        with st.spinner("Extrayendo datos..."):
+            data = asyncio.run(extract_from_url(url.strip()))
+        if "error" in data:
+            st.error(f"No se pudo extraer: {data['error']}")
+            st.session_state["add_url_extracted"] = {}
+        else:
+            st.session_state["add_url_extracted"] = data
+            st.rerun()
+
+    st.divider()
+
+    # Step 2: Form (always shown, pre-filled if extracted)
+    titulo = st.text_input("Título", value=extracted.get("titulo", ""))
+    precio = st.number_input("Precio (€) *", min_value=0, value=int(extracted.get("precio") or 0), step=1000)
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        superficie = st.number_input("Superficie m²", min_value=0, value=int(extracted.get("superficie_m2") or 0), step=1)
+    with col2:
+        habitaciones = st.number_input("Habitaciones", min_value=0, value=int(extracted.get("habitaciones") or 0), step=1)
+    with col3:
+        banos = st.number_input("Baños", min_value=0, value=int(extracted.get("banos") or 0), step=1)
+    municipio = st.text_input("Municipio", value=extracted.get("municipio") or "El Puerto de Santa María")
+    tipo_propiedad = st.selectbox("Tipo de propiedad", ["piso", "casa", "chalet", "otro"])
+    notas_campo = st.text_area("Notas", value="")
+
+    if not precio:
+        st.warning("El precio es obligatorio para guardar.")
+
+    if st.button("💾 Guardar", disabled=not precio or not url.strip()):
+        try:
+            hash_unico = hashlib.sha256(url.strip().encode()).hexdigest()
+            fuente_manual_id = _get_or_create_fuente_manual(session)
+            propiedad = Propiedad(
+                hash_unico=hash_unico,
+                url_original=url.strip(),
+                fuente_id=fuente_manual_id,
+                origen_web=urlparse(url.strip()).netloc,
+                titulo=titulo or url.strip(),
+                precio=float(precio),
+                superficie_m2=superficie or None,
+                habitaciones=habitaciones or None,
+                banos=banos or None,
+                municipio=municipio or None,
+                tipo_propiedad=tipo_propiedad,
+                descripcion=notas_campo or None,
+                activa=True,
+                fecha_scraping=datetime.utcnow(),
+            )
+            session.add(propiedad)
+            session.commit()
+            session.refresh(propiedad)
+            if propiedad.precio:
+                session.add(PrecioHistorico(propiedad_id=propiedad.id, precio=propiedad.precio))
+                session.commit()
+            # Clear state
+            st.session_state["add_url_extracted"] = {}
+            st.session_state["add_url_value"] = ""
+            st.success(f"✅ Propiedad guardada: {propiedad.titulo[:50]}")
+            st.rerun()
+        except Exception as e:
+            st.error(f"Error al guardar: {e}")
+
+
 # Initialize session state
 if "current_page" not in st.session_state:
     st.session_state.current_page = 1
@@ -348,6 +454,11 @@ def render_property_card(prop):
         if meta:
             st.caption(" • ".join(meta))
 
+        # Manual badge
+        fuente_manual_id = st.session_state.get("fuente_manual_id")
+        if fuente_manual_id and prop.fuente_id == fuente_manual_id:
+            st.caption("📌 Manual")
+
         # Expandable details
         with st.expander("📖 Detalles"):
             col_d1, col_d2 = st.columns(2)
@@ -454,8 +565,16 @@ try:
             st.warning("No hay propiedades")
             st.stop()
 
+        # Initialize fuente_manual_id in session state for card badges
+        if "fuente_manual_id" not in st.session_state:
+            st.session_state["fuente_manual_id"] = _get_or_create_fuente_manual(session)
+
         # SIDEBAR FILTERS
         with st.sidebar:
+            if st.sidebar.button("➕ Añadir URL", use_container_width=True):
+                add_url_dialog(session)
+            st.sidebar.divider()
+
             st.title("🔍 Filtros")
 
             # Stats
