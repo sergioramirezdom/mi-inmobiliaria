@@ -1,6 +1,7 @@
 """Verify active properties and mark sold/reserved ones as inactive."""
 
 import logging
+from datetime import datetime
 from typing import Dict, Any, Optional
 
 from sqlmodel import Session, select
@@ -65,6 +66,7 @@ async def check_sold_properties(session: Session, limit: Optional[int] = None) -
                 estado = details.get("estado", "Vendida")
                 prop.activa = False
                 prop.estado = estado
+                prop.fecha_baja = datetime.utcnow()
                 session.add(prop)
                 session.commit()
                 logger.info(f"[{i}/{stats['total']}] 🚫 {estado}: {prop.titulo[:60]}")
@@ -86,6 +88,7 @@ async def check_sold_properties(session: Session, limit: Optional[int] = None) -
                 try:
                     prop.activa = False
                     prop.estado = "No disponible"
+                    prop.fecha_baja = datetime.utcnow()
                     session.add(prop)
                     session.commit()
                     logger.info(f"[{i}/{stats['total']}] 🚫 404 No disponible: {prop.titulo[:60]}")

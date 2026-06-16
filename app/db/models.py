@@ -89,6 +89,7 @@ class Propiedad(SQLModel, table=True):
     amenidades: Optional[List[str]] = Field(default=None, sa_column=Column(ARRAY(String)))  # e.g., ["Elevator", "Storage Room", "Air Conditioning"]
     fecha_publicacion: Optional[datetime] = None
     fecha_scraping: datetime = Field(default_factory=datetime.utcnow, index=True)
+    fecha_baja: Optional[datetime] = Field(default=None, index=True)  # when activa became False
     activa: bool = Field(default=True, index=True)
     vista: bool = Field(default=False, index=True)
     descartada: bool = Field(default=False, index=True)

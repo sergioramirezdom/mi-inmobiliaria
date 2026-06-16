@@ -207,6 +207,7 @@ class PaginatedScraper:
                                         if not details.get("activa", True):
                                             existing.activa = False
                                             existing.estado = details.get("estado", "Vendida")
+                                            existing.fecha_baja = datetime.utcnow()
                                             self.db_session.add(existing)
                                             self.db_session.commit()
                                             self.logger.info(f"🚫 Marcada como vendida: {existing.titulo}")
