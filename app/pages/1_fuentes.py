@@ -22,6 +22,7 @@ DETAIL_SCRAPER_OPTIONS = [
     ("Punto Hogar", "puntohogar"),
     ("Guadalete", "guadalete"),
     ("Jiménez Ruiz", "jimenezruiz"),
+    ("Puerto Piso", "puertopiso"),
 ]
 
 DETAIL_SCRAPER_LABELS = {v: label for label, v in DETAIL_SCRAPER_OPTIONS}
@@ -70,6 +71,20 @@ SCRAPER_CONFIG_TEMPLATES = {
             "link": "a",
             "title": ".listado5_contendor_inmueble_datos_titulo",
             "description": ".listado5_contendor_inmueble_datos_descripcion",
+        },
+    },
+    "puertopiso": {
+        "detail_scraper_type": "puertopiso",
+        "pagination_param": "pag",
+        "pagination_start": 1,
+        "pagination_skip_first": True,
+        "use_results_per_page": False,
+        "max_pages": 10,
+        "municipio_filter": "El Puerto de Santa María",
+        "selectors": {
+            "property_container": "div.mcb-wrap-inner",
+            "link": "div.desc a",
+            "title": "div.desc p strong",
         },
     },
 }

@@ -12,6 +12,7 @@ from .puerto_inmobiliaria import PuertoInmobiliariaScraper
 from .mobilia_scraper import MobiliaScraper
 from .punto_hogar_scraper import PuntoHogarScraper
 from .guadalete_scraper import GuadaleteScraper
+from .puertopiso_scraper import PuertoPisoScraper
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +24,8 @@ def _get_scraper(detail_type: Optional[str], config: ScraperConfig):
         return PuntoHogarScraper(config)
     elif detail_type == "guadalete":
         return GuadaleteScraper(config)
+    elif detail_type == "puertopiso":
+        return PuertoPisoScraper(config)
     return PuertoInmobiliariaScraper(config)
 
 

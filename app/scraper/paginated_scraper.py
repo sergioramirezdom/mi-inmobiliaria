@@ -16,6 +16,7 @@ from .mobilia_scraper import MobiliaScraper
 from .punto_hogar_scraper import PuntoHogarScraper
 from .guadalete_scraper import GuadaleteScraper
 from .jimenezruiz_scraper import JimenezRuizScraper
+from .puertopiso_scraper import PuertoPisoScraper
 from .config import ScraperConfig
 from db.models import Fuente, Propiedad, PrecioHistorico
 
@@ -77,6 +78,8 @@ class PaginatedScraper:
             self.detail_scraper = GuadaleteScraper(fuente_config)
         elif detail_type == "jimenezruiz":
             self.detail_scraper = JimenezRuizScraper(fuente_config)
+        elif detail_type == "puertopiso":
+            self.detail_scraper = PuertoPisoScraper(fuente_config)
         else:
             self.detail_scraper = PuertoInmobiliariaScraper(fuente_config)
 
