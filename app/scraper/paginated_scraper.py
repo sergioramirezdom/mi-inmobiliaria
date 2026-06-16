@@ -283,6 +283,10 @@ class PaginatedScraper:
                     except Exception as e:
                         self.logger.warning(f"Error processing property: {e}")
                         stats["errores"] += 1
+                        try:
+                            self.db_session.rollback()
+                        except Exception:
+                            pass
                         continue
 
                 stats["paginas_procesadas"] += 1
