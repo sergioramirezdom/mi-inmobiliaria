@@ -16,6 +16,8 @@ BROWSER_HEADERS = {
 }
 
 _SOLD_KEYWORDS = ("vendido", "vendida", "reservado", "reservada")
+# Phrases that contain sold keywords but are NOT indicators of sold status
+_SOLD_KEYWORD_EXCLUSIONS = ("derechos reservados", "reservados todos", "todos los derechos")
 
 
 async def extract_from_url(url: str) -> dict:
@@ -45,10 +47,15 @@ def _parse_html(html: str) -> dict:
     lower_text = page_text.lower()
     data: dict = {}
 
-    # Sold detection — check first 3000 chars
+    # Sold detection — check first 3000 chars, excluding copyright/legal phrases
+    check_text = lower_text[:3000]
     for keyword in _SOLD_KEYWORDS:
-        if keyword in lower_text[:3000]:
-            return {"activa": False, "estado": keyword.capitalize()}
+        idx = check_text.find(keyword)
+        while idx >= 0:
+            context = check_text[max(0, idx - 20):idx + len(keyword) + 10]
+            if not any(excl in context for excl in _SOLD_KEYWORD_EXCLUSIONS):
+                return {"activa": False, "estado": keyword.capitalize()}
+            idx = check_text.find(keyword, idx + 1)
 
     # Price — meta tags first, then regex in page text
     for meta_name in ("og:price:amount", "product:price:amount", "price"):
