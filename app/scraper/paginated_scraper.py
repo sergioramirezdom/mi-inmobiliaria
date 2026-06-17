@@ -177,11 +177,24 @@ class PaginatedScraper:
                                     stats["filtradas"] = stats.get("filtradas", 0) + 1
                                     continue
 
+                        # Canonicalize URL if the detail scraper supports it (e.g. puertopiso
+                        # strips variable pagination params so the hash is stable across runs)
+                        raw_url = url_original
+                        if hasattr(self.detail_scraper, 'canonicalize_url'):
+                            url_original = self.detail_scraper.canonicalize_url(url_original)
+                            raw_data['url_original'] = url_original
+
                         # Check if already in DB
                         hash_unico = self.generic_scraper.calculate_hash(url_original)
-
                         stmt = select(Propiedad).where(Propiedad.hash_unico == hash_unico)
                         existing = self.db_session.exec(stmt).first()
+
+                        # Backward compat: records saved before URL canonicalization have a
+                        # different hash — also try the raw listing URL hash
+                        if not existing and raw_url != url_original:
+                            hash_raw = self.generic_scraper.calculate_hash(raw_url)
+                            stmt = select(Propiedad).where(Propiedad.hash_unico == hash_raw)
+                            existing = self.db_session.exec(stmt).first()
 
                         if existing:
                             # Re-enrich if metadata is missing (e.g. saved during a broken run)

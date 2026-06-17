@@ -49,6 +49,9 @@ class PuertoPisoScraper:
     def __init__(self, config: ScraperConfig = None):
         self.config = config or ScraperConfig()
 
+    def canonicalize_url(self, url: str) -> str:
+        return _fix_url(url)
+
     async def scrape_property_details(self, url: str) -> Dict[str, Any]:
         url = _fix_url(url)
 
@@ -180,14 +183,28 @@ class PuertoPisoScraper:
 
 
 def _fix_url(url: str) -> str:
-    """Ensure URL points to the correct /buscador/ path."""
+    """Canonicalize puertopiso.com property URL to stable form: /buscador/inmueble.php?id=XXXXX.
+
+    The listing page appends variable pagination params (pag, tpag2, filtrar, etc.)
+    that change between scraping runs, causing hash mismatches for the same property.
+    Keeping only the id param produces a stable canonical URL.
+    """
+    from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
+
     if not url.startswith("http"):
         return BASE_URL + url.lstrip("/")
-    # GenericScraper resolves relative hrefs using only scheme+netloc as base,
-    # so "inmueble.php" becomes "https://www.puertopiso.com/inmueble.php".
-    # Fix that by inserting /buscador/ when it's missing.
+
+    # Insert /buscador/ if GenericScraper resolved the path without it
     if "puertopiso.com" in url and "/buscador/" not in url:
         url = url.replace("puertopiso.com/", "puertopiso.com/buscador/")
+
+    # Strip all query params except 'id'
+    parsed = urlparse(url)
+    params = parse_qs(parsed.query)
+    if "id" in params:
+        canonical_query = urlencode({"id": params["id"][0]})
+        url = urlunparse(parsed._replace(query=canonical_query))
+
     return url
 
 
