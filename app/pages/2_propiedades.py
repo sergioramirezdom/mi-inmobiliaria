@@ -71,7 +71,7 @@ def add_url_dialog(session):
             st.session_state["add_url_extracted"] = {}
         else:
             st.session_state["add_url_extracted"] = data
-            st.rerun()
+            extracted = data
 
     st.divider()
 

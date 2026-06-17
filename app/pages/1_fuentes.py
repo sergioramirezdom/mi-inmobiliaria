@@ -1,12 +1,13 @@
 """Página de gestión de fuentes (URLs de inmobiliarias)."""
 
+import asyncio
 import json
-import streamlit as st
 import logging
 import sys
-import asyncio
 from pathlib import Path
 from urllib.parse import urlparse
+
+import streamlit as st
 from sqlmodel import Session, select
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -104,7 +105,9 @@ def _parse_notas(notas: str | None) -> dict:
         return {}
 
 
-def _build_notas(detail_scraper_type: str | None, max_pages_override: int | None = None) -> str | None:
+def _build_notas(
+    detail_scraper_type: str | None, max_pages_override: int | None = None
+) -> str | None:
     """Return notas JSON for a given detail_scraper_type, optionally overriding max_pages."""
     if not detail_scraper_type:
         return None
@@ -122,10 +125,10 @@ def _build_notas(detail_scraper_type: str | None, max_pages_override: int | None
 @st.cache_resource
 def get_database_resources():
     """Cache database imports to avoid SQLAlchemy reload issues."""
-    from db.database import engine, FuenteCRUD
+    from db.database import FuenteCRUD, engine
     from db.models import Fuente, Propiedad
-    from scraper.runner import ScraperRunner
     from scraper.config import ScraperConfig
+    from scraper.runner import ScraperRunner
 
     return {
         "engine": engine,
@@ -147,21 +150,19 @@ ScraperRunner = _resources["ScraperRunner"]
 ScraperConfig = _resources["ScraperConfig"]
 
 # Page config
-st.set_page_config(
-    page_title="Gestión de Fuentes",
-    page_icon="📍",
-    layout="wide"
-)
+st.set_page_config(page_title="Gestión de Fuentes", page_icon="📍", layout="wide")
 
 st.title("📍 Gestión de Fuentes")
-st.markdown("Aquí puedes añadir, editar y eliminar URLs de inmobiliarias para el scraping automático.")
+st.markdown(
+    "Aquí puedes añadir, editar y eliminar URLs de inmobiliarias para el scraping automático."
+)
 
 
 def validate_url(url: str) -> bool:
     """Validate URL format."""
     try:
         result = urlparse(url)
-        return all([result.scheme in ['http', 'https'], result.netloc])
+        return all([result.scheme in ["http", "https"], result.netloc])
     except Exception:
         return False
 
@@ -176,19 +177,19 @@ with col1:
         nombre = st.text_input(
             "Nombre de la fuente",
             placeholder="ej: Punto Hogar El Puerto",
-            help="Un nombre descriptivo para identificar la fuente"
+            help="Un nombre descriptivo para identificar la fuente",
         )
 
         url = st.text_input(
             "URL de la inmobiliaria",
             placeholder="https://www.puntohogarinmobiliaria.com/buscador/index.php?municipio=...",
-            help="URL completa con protocolo (http/https)"
+            help="URL completa con protocolo (http/https)",
         )
 
         tipo_scraper = st.selectbox(
             "Tipo de scraper",
             options=["generic", "playwright"],
-            help="generic: httpx + BeautifulSoup (rápido). playwright: navegador real (más lento pero confiable)"
+            help="generic: httpx + BeautifulSoup (rápido). playwright: navegador real (más lento pero confiable)",
         )
 
         detail_type_labels = [label for label, _ in DETAIL_SCRAPER_OPTIONS]
@@ -196,11 +197,15 @@ with col1:
             "Scraper de detalle",
             options=range(len(DETAIL_SCRAPER_OPTIONS)),
             format_func=lambda i: detail_type_labels[i],
-            help="Elige el extractor de datos para las páginas de cada propiedad"
+            help="Elige el extractor de datos para las páginas de cada propiedad",
         )
         selected_detail_type = DETAIL_SCRAPER_OPTIONS[detail_type_idx][1]
 
-        template = SCRAPER_CONFIG_TEMPLATES.get(selected_detail_type, {}) if selected_detail_type else {}
+        template = (
+            SCRAPER_CONFIG_TEMPLATES.get(selected_detail_type, {})
+            if selected_detail_type
+            else {}
+        )
         template_max = template.get("max_pages", 0)
         if selected_detail_type:
             st.caption(f"⚙️ Config base: `{json.dumps(template, ensure_ascii=False)}`")
@@ -210,7 +215,7 @@ with col1:
             min_value=0,
             max_value=500,
             value=template_max,
-            help="Limita cuántas páginas se escanean. Útil cuando el sitio no filtra por municipio. 0 = sin límite."
+            help="Limita cuántas páginas se escanean. Útil cuando el sitio no filtra por municipio. 0 = sin límite.",
         )
 
         intervalo_horas = st.number_input(
@@ -218,7 +223,7 @@ with col1:
             min_value=1,
             max_value=168,
             value=24,
-            help="Cada cuántas horas hacer scraping de esta fuente"
+            help="Cada cuántas horas hacer scraping de esta fuente",
         )
 
         submitted = st.form_submit_button("✅ Añadir Fuente", use_container_width=True)
@@ -242,8 +247,10 @@ with col1:
                                 url=url.strip(),
                                 tipo_scraper=tipo_scraper,
                                 intervalo_horas=int(intervalo_horas),
-                                notas=_build_notas(selected_detail_type, int(max_pages)),
-                                activa=True
+                                notas=_build_notas(
+                                    selected_detail_type, int(max_pages)
+                                ),
+                                activa=True,
                             )
                             FuenteCRUD.create(session, new_fuente)
                             st.success(f"✅ Fuente '{nombre}' añadida correctamente")
@@ -260,7 +267,9 @@ with col2:
             fuentes = FuenteCRUD.get_all(session)
 
             if not fuentes:
-                st.info("📌 No hay fuentes registradas. Añade una en el formulario de la izquierda.")
+                st.info(
+                    "📌 No hay fuentes registradas. Añade una en el formulario de la izquierda."
+                )
             else:
                 st.write(f"**Total: {len(fuentes)} fuente(s)**")
                 st.divider()
@@ -285,30 +294,32 @@ with col2:
 
                             with col_edit:
                                 if st.button(
-                                    "✏️ Editar",
+                                    "✏️",
                                     key=f"edit_{fuente.id}",
                                     use_container_width=True,
-                                    type="secondary"
+                                    type="secondary",
                                 ):
                                     st.session_state[f"editing_{fuente.id}"] = True
                                     st.rerun()
 
                             with col_toggle:
                                 if st.button(
-                                    "✓ Activar" if not fuente.activa else "✗ Desactivar",
+                                    "✓" if not fuente.activa else "✗",
                                     key=f"toggle_{fuente.id}",
                                     use_container_width=True,
-                                    type="secondary"
+                                    type="secondary",
                                 ):
                                     with Session(engine) as s:
-                                        FuenteCRUD.update(s, fuente.id, activa=not fuente.activa)
+                                        FuenteCRUD.update(
+                                            s, fuente.id, activa=not fuente.activa
+                                        )
                                     st.rerun()
 
                             with col_delete:
                                 if st.button(
-                                    "🗑️ Eliminar",
+                                    "🗑️",
                                     key=f"delete_{fuente.id}",
-                                    use_container_width=True
+                                    use_container_width=True,
                                 ):
                                     with Session(engine) as s:
                                         FuenteCRUD.delete(s, fuente.id)
@@ -324,7 +335,9 @@ with col2:
                             st.caption(f"⏰ Cada {fuente.intervalo_horas}h")
                         with col_exec:
                             if fuente.ultima_ejecucion:
-                                last_exec = fuente.ultima_ejecucion.strftime("%d/%m/%Y %H:%M")
+                                last_exec = fuente.ultima_ejecucion.strftime(
+                                    "%d/%m/%Y %H:%M"
+                                )
                                 st.caption(f"⏱️ Última: {last_exec}")
                             else:
                                 st.caption("⏱️ Nunca ejecutada")
@@ -337,28 +350,30 @@ with col2:
                             current_cfg = _parse_notas(fuente.notas)
                             current_dt = current_cfg.get("detail_scraper_type")
                             current_dt_idx = next(
-                                (i for i, (_, v) in enumerate(DETAIL_SCRAPER_OPTIONS) if v == current_dt),
-                                0
+                                (
+                                    i
+                                    for i, (_, v) in enumerate(DETAIL_SCRAPER_OPTIONS)
+                                    if v == current_dt
+                                ),
+                                0,
                             )
 
                             with st.form(f"edit_form_{fuente.id}"):
                                 edit_nombre = st.text_input(
                                     "Nombre",
                                     value=fuente.nombre,
-                                    key=f"edit_nombre_{fuente.id}"
+                                    key=f"edit_nombre_{fuente.id}",
                                 )
 
                                 edit_url = st.text_input(
-                                    "URL",
-                                    value=fuente.url,
-                                    key=f"edit_url_{fuente.id}"
+                                    "URL", value=fuente.url, key=f"edit_url_{fuente.id}"
                                 )
 
                                 edit_tipo = st.selectbox(
                                     "Tipo de scraper",
                                     options=["generic", "playwright"],
                                     index=0 if fuente.tipo_scraper == "generic" else 1,
-                                    key=f"edit_tipo_{fuente.id}"
+                                    key=f"edit_tipo_{fuente.id}",
                                 )
 
                                 edit_detail_idx = st.selectbox(
@@ -366,7 +381,7 @@ with col2:
                                     options=range(len(DETAIL_SCRAPER_OPTIONS)),
                                     format_func=lambda i: detail_type_labels[i],
                                     index=current_dt_idx,
-                                    key=f"edit_detail_{fuente.id}"
+                                    key=f"edit_detail_{fuente.id}",
                                 )
 
                                 edit_intervalo = st.number_input(
@@ -374,7 +389,7 @@ with col2:
                                     min_value=1,
                                     max_value=168,
                                     value=fuente.intervalo_horas,
-                                    key=f"edit_intervalo_{fuente.id}"
+                                    key=f"edit_intervalo_{fuente.id}",
                                 )
 
                                 edit_max_pages = st.number_input(
@@ -383,13 +398,15 @@ with col2:
                                     max_value=500,
                                     value=current_cfg.get("max_pages", 0),
                                     key=f"edit_max_pages_{fuente.id}",
-                                    help="Limita cuántas páginas se escanean. 0 = sin límite."
+                                    help="Limita cuántas páginas se escanean. 0 = sin límite.",
                                 )
 
                                 col_save, col_cancel = st.columns(2)
 
                                 with col_save:
-                                    if st.form_submit_button("💾 Guardar Cambios", use_container_width=True):
+                                    if st.form_submit_button(
+                                        "💾 Guardar Cambios", use_container_width=True
+                                    ):
                                         if not edit_nombre.strip():
                                             st.error("❌ El nombre es obligatorio")
                                         elif not edit_url.strip():
@@ -398,12 +415,23 @@ with col2:
                                             st.error("❌ URL inválida")
                                         else:
                                             try:
-                                                new_dt = DETAIL_SCRAPER_OPTIONS[edit_detail_idx][1]
-                                                new_notas = _build_notas(new_dt, int(edit_max_pages))
+                                                new_dt = DETAIL_SCRAPER_OPTIONS[
+                                                    edit_detail_idx
+                                                ][1]
+                                                new_notas = _build_notas(
+                                                    new_dt, int(edit_max_pages)
+                                                )
                                                 with Session(engine) as s:
-                                                    existing = FuenteCRUD.get_by_url(s, edit_url.strip())
-                                                    if existing and existing.id != fuente.id:
-                                                        st.error("⚠️ Esta URL ya existe en la base de datos")
+                                                    existing = FuenteCRUD.get_by_url(
+                                                        s, edit_url.strip()
+                                                    )
+                                                    if (
+                                                        existing
+                                                        and existing.id != fuente.id
+                                                    ):
+                                                        st.error(
+                                                            "⚠️ Esta URL ya existe en la base de datos"
+                                                        )
                                                     else:
                                                         FuenteCRUD.update(
                                                             s,
@@ -411,18 +439,30 @@ with col2:
                                                             nombre=edit_nombre.strip(),
                                                             url=edit_url.strip(),
                                                             tipo_scraper=edit_tipo,
-                                                            intervalo_horas=int(edit_intervalo),
-                                                            notas=new_notas
+                                                            intervalo_horas=int(
+                                                                edit_intervalo
+                                                            ),
+                                                            notas=new_notas,
                                                         )
-                                                        st.success("✅ Cambios guardados")
-                                                        st.session_state[f"editing_{fuente.id}"] = False
+                                                        st.success(
+                                                            "✅ Cambios guardados"
+                                                        )
+                                                        st.session_state[
+                                                            f"editing_{fuente.id}"
+                                                        ] = False
                                                         st.rerun()
                                             except Exception as e:
-                                                logger.error(f"Error al actualizar fuente: {e}")
+                                                logger.error(
+                                                    f"Error al actualizar fuente: {e}"
+                                                )
                                                 st.error(f"❌ Error al guardar: {e}")
 
                                 with col_cancel:
-                                    if st.form_submit_button("❌ Cancelar", use_container_width=True, type="secondary"):
+                                    if st.form_submit_button(
+                                        "❌ Cancelar",
+                                        use_container_width=True,
+                                        type="secondary",
+                                    ):
                                         st.session_state[f"editing_{fuente.id}"] = False
                                         st.rerun()
 
@@ -433,8 +473,10 @@ with col2:
                                 "🧪 Probar scraping",
                                 key=f"test_{fuente.id}",
                                 disabled=not fuente.activa,
-                                help="Ejecuta un scraping de prueba para esta fuente (página actual)" if fuente.activa else "Activa la fuente primero",
-                                use_container_width=True
+                                help="Ejecuta un scraping de prueba para esta fuente (página actual)"
+                                if fuente.activa
+                                else "Activa la fuente primero",
+                                use_container_width=True,
                             ):
                                 st.session_state[f"scraping_{fuente.id}"] = "simple"
 
@@ -443,81 +485,150 @@ with col2:
                                 "🌐 Scraping Completo",
                                 key=f"complete_{fuente.id}",
                                 disabled=not fuente.activa,
-                                help="Ejecuta scraping en TODAS las páginas (paginado)" if fuente.activa else "Activa la fuente primero",
+                                help="Ejecuta scraping en TODAS las páginas (paginado)"
+                                if fuente.activa
+                                else "Activa la fuente primero",
                                 use_container_width=True,
-                                type="primary"
+                                type="primary",
                             ):
                                 st.session_state[f"scraping_{fuente.id}"] = "paginated"
 
                         # Execute scraping if button was clicked
-                        scraping_mode = st.session_state.get(f"scraping_{fuente.id}", False)
+                        scraping_mode = st.session_state.get(
+                            f"scraping_{fuente.id}", False
+                        )
                         if scraping_mode:
-                            scraping_type = "completo (paginado)" if scraping_mode == "paginated" else "simple"
-                            with st.spinner(f"🔄 Scrapeando {fuente.nombre} ({scraping_type})..."):
+                            scraping_type = (
+                                "completo (paginado)"
+                                if scraping_mode == "paginated"
+                                else "simple"
+                            )
+                            with st.spinner(
+                                f"🔄 Scrapeando {fuente.nombre} ({scraping_type})..."
+                            ):
                                 try:
                                     with Session(engine) as session:
                                         runner = ScraperRunner(session)
                                         if scraping_mode == "paginated":
-                                            stats = asyncio.run(runner.run_paginated_scraper(fuente, results_per_page=48))
+                                            stats = asyncio.run(
+                                                runner.run_paginated_scraper(
+                                                    fuente, results_per_page=48
+                                                )
+                                            )
                                         else:
-                                            stats = asyncio.run(runner.run_scraper(fuente))
+                                            stats = asyncio.run(
+                                                runner.run_scraper(fuente)
+                                            )
 
                                     if scraping_mode == "paginated":
                                         result_cols = st.columns(5)
                                         with result_cols[0]:
-                                            st.metric("✅ Nuevas", stats.get("nuevas", 0))
+                                            st.metric(
+                                                "✅ Nuevas", stats.get("nuevas", 0)
+                                            )
                                         with result_cols[1]:
-                                            st.metric("⚠️ Duplicadas", stats.get("duplicadas", 0))
+                                            st.metric(
+                                                "⚠️ Duplicadas",
+                                                stats.get("duplicadas", 0),
+                                            )
                                         with result_cols[2]:
-                                            st.metric("❌ Errores", stats.get("errores", 0))
+                                            st.metric(
+                                                "❌ Errores", stats.get("errores", 0)
+                                            )
                                         with result_cols[3]:
-                                            st.metric("📄 Páginas", stats.get("paginas_procesadas", 0))
+                                            st.metric(
+                                                "📄 Páginas",
+                                                stats.get("paginas_procesadas", 0),
+                                            )
                                         with result_cols[4]:
-                                            st.metric("⏱️ Tiempo (s)", stats.get("tiempo_segundos", 0))
+                                            st.metric(
+                                                "⏱️ Tiempo (s)",
+                                                stats.get("tiempo_segundos", 0),
+                                            )
                                     else:
                                         result_cols = st.columns(4)
                                         with result_cols[0]:
-                                            st.metric("✅ Nuevas", stats.get("nuevas", 0))
+                                            st.metric(
+                                                "✅ Nuevas", stats.get("nuevas", 0)
+                                            )
                                         with result_cols[1]:
-                                            st.metric("⚠️ Duplicadas", stats.get("duplicadas", 0))
+                                            st.metric(
+                                                "⚠️ Duplicadas",
+                                                stats.get("duplicadas", 0),
+                                            )
                                         with result_cols[2]:
-                                            st.metric("❌ Errores", stats.get("errores", 0))
+                                            st.metric(
+                                                "❌ Errores", stats.get("errores", 0)
+                                            )
                                         with result_cols[3]:
-                                            st.metric("⏱️ Tiempo (s)", stats.get("tiempo_segundos", 0))
+                                            st.metric(
+                                                "⏱️ Tiempo (s)",
+                                                stats.get("tiempo_segundos", 0),
+                                            )
 
                                     if stats.get("error"):
-                                        st.error(f"❌ Error durante scraping: {stats['error']}")
+                                        st.error(
+                                            f"❌ Error durante scraping: {stats['error']}"
+                                        )
 
                                     nuevas_count = stats.get("nuevas", 0)
                                     if nuevas_count > 0:
                                         st.divider()
-                                        st.subheader(f"📊 {nuevas_count} Propiedades Nuevas")
+                                        st.subheader(
+                                            f"📊 {nuevas_count} Propiedades Nuevas"
+                                        )
                                         try:
                                             with Session(engine) as session:
                                                 stmt = (
                                                     select(Propiedad)
-                                                    .where(Propiedad.fuente_id == fuente.id)
-                                                    .order_by(Propiedad.created_at.desc())
+                                                    .where(
+                                                        Propiedad.fuente_id == fuente.id
+                                                    )
+                                                    .order_by(
+                                                        Propiedad.created_at.desc()
+                                                    )
                                                     .limit(nuevas_count)
                                                 )
-                                                nuevas_propiedades = session.exec(stmt).all()
+                                                nuevas_propiedades = session.exec(
+                                                    stmt
+                                                ).all()
                                                 for prop in nuevas_propiedades[:10]:
                                                     titulo = prop.titulo or "Sin título"
-                                                    precio = f"€{prop.precio:,.0f}" if prop.precio else "N/A"
-                                                    m2 = f"{prop.superficie_m2:.0f}m²" if prop.superficie_m2 else "N/A"
-                                                    hab = f"{prop.habitaciones} hab" if prop.habitaciones else ""
-                                                    st.caption(f"• **{titulo[:60]}** — {precio} • {m2} {hab}")
+                                                    precio = (
+                                                        f"€{prop.precio:,.0f}"
+                                                        if prop.precio
+                                                        else "N/A"
+                                                    )
+                                                    m2 = (
+                                                        f"{prop.superficie_m2:.0f}m²"
+                                                        if prop.superficie_m2
+                                                        else "N/A"
+                                                    )
+                                                    hab = (
+                                                        f"{prop.habitaciones} hab"
+                                                        if prop.habitaciones
+                                                        else ""
+                                                    )
+                                                    st.caption(
+                                                        f"• **{titulo[:60]}** — {precio} • {m2} {hab}"
+                                                    )
                                         except Exception as e:
-                                            logger.warning(f"Error mostrando propiedades: {e}")
+                                            logger.warning(
+                                                f"Error mostrando propiedades: {e}"
+                                            )
 
                                     st.success("✅ Scraping completado")
                                     st.session_state[f"scraping_{fuente.id}"] = None
 
                                 except asyncio.TimeoutError:
-                                    st.error("⏱️ Timeout: El scraping tardó demasiado tiempo")
+                                    st.error(
+                                        "⏱️ Timeout: El scraping tardó demasiado tiempo"
+                                    )
                                     st.session_state[f"scraping_{fuente.id}"] = None
                                 except Exception as e:
-                                    logger.error(f"Error en scraping de {fuente.nombre}: {e}")
+                                    logger.error(
+                                        f"Error en scraping de {fuente.nombre}: {e}"
+                                    )
                                     st.error(f"❌ Error durante scraping: {str(e)}")
                                     st.session_state[f"scraping_{fuente.id}"] = None
 
