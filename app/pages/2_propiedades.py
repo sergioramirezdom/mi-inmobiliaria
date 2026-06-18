@@ -403,7 +403,10 @@ def fotos_dialog(prop):
     total = len(fotos)
 
     st.caption(f"Foto {idx + 1} de {total}")
-    st.image(fotos[idx], use_container_width=True)
+    st.markdown(
+        f'<img src="{fotos[idx]}" style="width:100%;max-height:420px;object-fit:contain;">',
+        unsafe_allow_html=True,
+    )
 
     col_prev, col_next = st.columns(2)
     with col_prev:
