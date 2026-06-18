@@ -388,6 +388,34 @@ def calculadora_modal(prop):
         c2.metric("Total intereses", f"€{hip['total_intereses']:,.0f} ({hip['pct_intereses']:.1f}%)")
 
 
+@st.dialog("📸 Fotos", width="large")
+def fotos_dialog(prop):
+    fotos = prop.fotos or []
+    if not fotos:
+        st.info("Esta propiedad no tiene fotos.")
+        return
+
+    key = f"foto_idx_{prop.id}"
+    if key not in st.session_state:
+        st.session_state[key] = 0
+
+    idx = st.session_state[key]
+    total = len(fotos)
+
+    st.caption(f"Foto {idx + 1} de {total}")
+    st.image(fotos[idx], use_container_width=True)
+
+    col_prev, col_next = st.columns(2)
+    with col_prev:
+        if st.button("← Anterior", key=f"foto_prev_{prop.id}", use_container_width=True):
+            st.session_state[key] = (idx - 1) % total
+            st.rerun()
+    with col_next:
+        if st.button("Siguiente →", key=f"foto_next_{prop.id}", use_container_width=True):
+            st.session_state[key] = (idx + 1) % total
+            st.rerun()
+
+
 def render_property_card(prop):
     """Renderizar tarjeta de propiedad con HTML/Markdown."""
     with st.container(border=True):
@@ -511,7 +539,7 @@ def render_property_card(prop):
                     st.caption(f"IBI: €{prop.precio_ibi}/año")
 
         # Action buttons
-        col_btn1, col_btn2, col_btn3, col_btn4, col_btn5 = st.columns(5)
+        col_btn1, col_btn2, col_btn3, col_btn4, col_btn5, col_btn6 = st.columns(6)
 
         with col_btn1:
             view_btn = st.button(
@@ -534,13 +562,18 @@ def render_property_card(prop):
                 calculadora_modal(prop)
 
         with col_btn4:
+            if prop.fotos:
+                if st.button("📸", key=f"fotos_{prop.id}", use_container_width=True, help="Ver fotos"):
+                    fotos_dialog(prop)
+
+        with col_btn5:
             st.link_button(
                 "🔗",
                 prop.url_original,
                 use_container_width=True
             )
 
-        with col_btn5:
+        with col_btn6:
             discard_btn = st.button(
                 "❌ Descartado" if prop.descartada else "❌",
                 key=f"discard_{prop.id}",
