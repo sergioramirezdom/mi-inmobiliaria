@@ -409,11 +409,9 @@ def fotos_dialog(prop):
     with col_prev:
         if st.button("← Anterior", key=f"foto_prev_{prop.id}", use_container_width=True):
             st.session_state[key] = (idx - 1) % total
-            st.rerun()
     with col_next:
         if st.button("Siguiente →", key=f"foto_next_{prop.id}", use_container_width=True):
             st.session_state[key] = (idx + 1) % total
-            st.rerun()
 
 
 def render_property_card(prop):
@@ -564,6 +562,7 @@ def render_property_card(prop):
         with col_btn4:
             if prop.fotos:
                 if st.button("📸", key=f"fotos_{prop.id}", use_container_width=True, help="Ver fotos"):
+                    st.session_state[f"foto_idx_{prop.id}"] = 0
                     fotos_dialog(prop)
 
         with col_btn5:

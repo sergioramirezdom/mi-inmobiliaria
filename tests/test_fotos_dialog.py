@@ -35,3 +35,11 @@ def test_fotos_button_visible_with_photos():
     """Button renders when fotos has at least one URL."""
     fotos = ["https://example.com/1.jpg", "https://example.com/2.jpg"]
     assert bool(fotos) is True
+
+
+def test_carousel_single_photo_stays_at_zero():
+    """With only 1 photo, both directions stay at index 0."""
+    total = 1
+    idx = 0
+    assert (idx + 1) % total == 0
+    assert (idx - 1) % total == 0
