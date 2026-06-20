@@ -61,3 +61,23 @@ def test_extract_fotos_filters_by_domain():
 def test_extract_fotos_empty_when_none():
     soup = BeautifulSoup("<html><body><p>no images</p></body></html>", "lxml")
     assert _extract_fotos(soup) == []
+
+
+import asyncio
+from unittest.mock import patch, MagicMock
+from scraper.generic import GenericScraper
+from scraper.config import ScraperConfig, SelectorsConfig
+
+
+def test_generic_scraper_extracts_data_path_url():
+    """GenericScraper._extract_field should extract URL from data-path attribute."""
+    config = ScraperConfig(selectors=SelectorsConfig(property_container="div.card"))
+    scraper = GenericScraper(config)
+    scraper.base_url = "https://www.alonsaga.com"
+
+    html = '<div class="card" data-path="/detalle/en_venta/piso/cadiz/123/">Piso</div>'
+    soup = BeautifulSoup(html, "lxml")
+    element = soup.select_one("div.card")
+
+    url = scraper._extract_field(element, "link")
+    assert url == "https://www.alonsaga.com/detalle/en_venta/piso/cadiz/123/"

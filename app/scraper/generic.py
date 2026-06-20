@@ -285,6 +285,11 @@ class GenericScraper(ScraperBase):
                         if quoted.startswith(('http', '/', '/propiedad', 'propiedad', 'ficha')):
                             return self._resolve_url(quoted)
 
+                # Try data-path attribute (used by JS-navigated sites like alonsaga.com)
+                data_path_match = re.search(r'data-path=["\']([^"\']+)["\']', element_html)
+                if data_path_match:
+                    return self._resolve_url(data_path_match.group(1))
+
             except Exception as e:
                 self.logger.debug(f"Link regex failed: {e}")
         else:
