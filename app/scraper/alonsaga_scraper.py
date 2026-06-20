@@ -1,0 +1,146 @@
+"""Detail scraper for alonsaga.com."""
+
+import logging
+import re
+import sys
+from pathlib import Path
+from typing import Dict, Any, List, Optional
+
+import httpx
+from bs4 import BeautifulSoup
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from .config import ScraperConfig
+
+logger = logging.getLogger(__name__)
+
+BASE_URL = "https://www.alonsaga.com"
+
+BROWSER_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "es-ES,es;q=0.9",
+    "Referer": BASE_URL,
+}
+
+
+class AlonsagaScraper:
+    """Detail scraper for Alonsaga Inmobiliaria."""
+
+    def __init__(self, config: ScraperConfig = None):
+        self.config = config or ScraperConfig()
+
+    async def scrape_property_details(self, url: str) -> Dict[str, Any]:
+        if not url.startswith("http"):
+            url = BASE_URL + url
+
+        data: Dict[str, Any] = {"url_original": url, "activa": True}
+
+        try:
+            async with httpx.AsyncClient(follow_redirects=True) as client:
+                response = await client.get(url, headers=BROWSER_HEADERS, timeout=self.config.timeout)
+                if response.status_code == 404:
+                    logger.info(f"HTTP 404 — marcando como no disponible: {url}")
+                    data["activa"] = False
+                    data["estado"] = "No disponible"
+                    return data
+                if response.status_code != 200:
+                    logger.warning(f"HTTP {response.status_code} for {url}")
+                    return data
+                html = response.text
+        except Exception as e:
+            logger.warning(f"Error fetching {url}: {e}")
+            return data
+
+        soup = BeautifulSoup(html, "lxml")
+        page_text = soup.get_text(" ", strip=True)
+        lower_text = page_text.lower()
+
+        # Sold detection
+        for keyword in ("vendido", "vendida", "reservado", "reservada"):
+            if keyword in lower_text:
+                data["activa"] = False
+                data["estado"] = keyword.capitalize()
+                return data
+
+        # Title
+        h1 = soup.find("h1")
+        if h1:
+            data["titulo"] = h1.get_text(strip=True)
+
+        # Price: format "180.000 €" or "180.000€"
+        price_match = re.search(r"([\d.]+(?:,\d+)?)\s*€", page_text)
+        if price_match:
+            data["precio"] = _parse_price_eu(price_match.group(1))
+
+        # Numeric fields via regex
+        patterns = [
+            (r"(\d+)\s*[Hh]abitaciones?", "habitaciones"),
+            (r"(\d+)\s*[Bb]años?", "banos"),
+            (r"([\d.,]+)\s*m²", "superficie_m2"),
+        ]
+        for pattern, field in patterns:
+            if field in data:
+                continue
+            m = re.search(pattern, page_text)
+            if m:
+                val = m.group(1).replace(".", "").replace(",", ".")
+                try:
+                    data[field] = int(float(val)) if field in ("habitaciones", "banos") else float(val)
+                except (ValueError, TypeError):
+                    pass
+
+        # Fixed municipio
+        data["municipio"] = "El Puerto de Santa María"
+
+        # Property type from URL
+        tipo = _extract_tipo_from_url(url)
+        if tipo:
+            data["tipo_propiedad"] = tipo
+
+        # Photos
+        fotos = _extract_fotos(soup)
+        if fotos:
+            data["fotos"] = fotos
+
+        # Description: first block element with >150 chars and no nested block children
+        for tag in soup.find_all(["div", "section", "p"]):
+            text = tag.get_text(strip=True)
+            if len(text) > 150 and not tag.find_all(["div", "section"]):
+                data.setdefault("descripcion", text[:2000])
+                break
+
+        return data
+
+
+def _parse_price_eu(text: str) -> Optional[float]:
+    """Parse European price string: '180.000' → 180000.0, '250.000,50' → 250000.5"""
+    text = text.strip().replace(".", "").replace(",", ".")
+    try:
+        return float(text)
+    except (ValueError, TypeError):
+        return None
+
+
+def _extract_tipo_from_url(url: str) -> Optional[str]:
+    """Extract property type from URL path: /detalle/en_venta/{tipo}/... → tipo"""
+    m = re.search(r"/en_venta/([^/]+)/", url)
+    if m:
+        tipo = m.group(1)
+        tipo_map = {
+            "piso": "piso", "chalet": "chalet", "casa": "casa",
+            "local": "local", "garaje": "garaje", "oficina": "oficina",
+            "terreno": "terreno", "finca": "finca", "duplex": "duplex",
+            "atico": "atico", "apartamento": "apartamento",
+        }
+        return tipo_map.get(tipo, tipo) if tipo not in ("cadiz", "el_puerto_de_santa_maria") else None
+    return None
+
+
+def _extract_fotos(soup: BeautifulSoup) -> List[str]:
+    """Return all img src URLs that belong to the alonsaga photo CDN."""
+    return [
+        img["src"]
+        for img in soup.find_all("img", src=True)
+        if "fotoshs.imghs.net" in img["src"]
+    ]
