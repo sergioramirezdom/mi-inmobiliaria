@@ -24,6 +24,7 @@ DETAIL_SCRAPER_OPTIONS = [
     ("Guadalete", "guadalete"),
     ("Jiménez Ruiz", "jimenezruiz"),
     ("Puerto Piso", "puertopiso"),
+    ("Alonsaga", "alonsaga"),
 ]
 
 DETAIL_SCRAPER_LABELS = {v: label for label, v in DETAIL_SCRAPER_OPTIONS}
@@ -90,6 +91,18 @@ SCRAPER_CONFIG_TEMPLATES = {
             "link": "div.desc a",
             "title": "div.desc p strong",
         },
+    },
+    "alonsaga": {
+        "detail_scraper_type": "alonsaga",
+        "selectors": {
+            "property_container": "div.cardAnuncio",
+            "title": "span.titulo",
+            "price": "div.precio",
+        },
+        "pagination_param": "Pagina",
+        "pagination_start": 0,
+        "pagination_skip_first": True,
+        "use_results_per_page": False,
     },
 }
 
