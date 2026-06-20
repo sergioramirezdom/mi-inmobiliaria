@@ -14,6 +14,7 @@ from .punto_hogar_scraper import PuntoHogarScraper
 from .guadalete_scraper import GuadaleteScraper
 from .puertopiso_scraper import PuertoPisoScraper
 from .manual_scraper import ManualScraper
+from .alonsaga_scraper import AlonsagaScraper
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +30,8 @@ def _get_scraper(detail_type: Optional[str], config: ScraperConfig):
         return PuertoPisoScraper(config)
     elif detail_type == "manual_auto":
         return ManualScraper(config)
+    elif detail_type == "alonsaga":
+        return AlonsagaScraper(config)
     return PuertoInmobiliariaScraper(config)
 
 
