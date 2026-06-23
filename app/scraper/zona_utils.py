@@ -65,6 +65,8 @@ _STOP_WORDS = {"la", "el", "los", "las", "un", "una", "del", "de", "en", "por", 
 
 def extract_from_html(page_text: str, soup=None) -> Optional[str]:
     """Return zona from page text (and optional soup for h1/title priority), or None."""
+    if not page_text:
+        page_text = ""
     sources = []
 
     if soup is not None:

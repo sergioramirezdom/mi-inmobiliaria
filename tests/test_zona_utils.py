@@ -58,3 +58,6 @@ def test_extract_from_html_result_max_60_chars():
     result = extract_from_html(text)
     assert result is not None
     assert len(result) <= 60
+
+def test_extract_from_html_none_returns_none():
+    assert extract_from_html(None) is None
