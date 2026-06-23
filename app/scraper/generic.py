@@ -290,6 +290,12 @@ class GenericScraper(ScraperBase):
                 if data_path_match:
                     return self._resolve_url(data_path_match.group(1))
 
+                # Try data-path on parent element (alonsaga: <a data-path="..."><div.cardAnuncio>)
+                if hasattr(element, 'parent') and element.parent:
+                    parent_data_path = element.parent.get('data-path')
+                    if parent_data_path:
+                        return self._resolve_url(parent_data_path)
+
             except Exception as e:
                 self.logger.debug(f"Link regex failed: {e}")
         else:
