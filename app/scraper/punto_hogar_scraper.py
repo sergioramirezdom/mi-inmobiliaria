@@ -11,6 +11,7 @@ from bs4 import BeautifulSoup
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from .config import ScraperConfig
+from .zona_utils import extract_from_url as _zona_from_url, extract_from_html as _zona_from_html
 
 logger = logging.getLogger(__name__)
 
@@ -108,6 +109,9 @@ class PuntoHogarScraper:
 
         muni_el = soup.select_one("p#municipio")
         data["municipio"] = muni_el.get_text(strip=True) if muni_el else "El Puerto de Santa María"
+
+        if not data.get("barrio"):
+            data["barrio"] = _zona_from_url(url) or _zona_from_html(page_text, soup)
 
         return data
 

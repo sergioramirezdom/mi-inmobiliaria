@@ -11,6 +11,7 @@ from bs4 import BeautifulSoup
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from .config import ScraperConfig
+from .zona_utils import extract_from_url as _zona_from_url, extract_from_html as _zona_from_html
 
 logger = logging.getLogger(__name__)
 
@@ -134,11 +135,8 @@ class PuertoPisoScraper:
             tipo_raw = m.group(1).lower()
             data["tipo_propiedad"] = TIPO_MAP.get(tipo_raw, tipo_raw)
 
-        m = re.search(r"Zona[:\s]+([^\n<]+)", page_text, re.IGNORECASE)
-        if m:
-            zona = m.group(1).strip()
-            if zona and len(zona) < 60:
-                data["barrio"] = zona
+        if not data.get("barrio"):
+            data["barrio"] = _zona_from_url(url) or _zona_from_html(page_text, soup)
 
         # Boolean amenities
         amenity_map = {

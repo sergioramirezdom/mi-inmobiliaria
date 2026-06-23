@@ -6,6 +6,10 @@ from typing import Optional
 
 import httpx
 from bs4 import BeautifulSoup
+from .zona_utils import (
+    extract_from_url as _zona_from_url,
+    extract_from_html as _zona_from_html,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -37,10 +41,10 @@ async def extract_from_url(url: str) -> dict:
     except Exception as e:
         return {"error": str(e)}
 
-    return _parse_html(html)
+    return _parse_html(html, url=url)
 
 
-def _parse_html(html: str) -> dict:
+def _parse_html(html: str, url: str = "") -> dict:
     """Parse HTML and extract property fields. Pure function — no HTTP calls."""
     soup = BeautifulSoup(html, "html.parser")
     page_text = soup.get_text(" ", strip=True)
@@ -111,6 +115,13 @@ def _parse_html(html: str) -> dict:
         if tag and tag.get("content"):
             data["municipio"] = tag["content"].strip()
             break
+
+    # Zona fallback
+    if not data.get("barrio"):
+        data["barrio"] = (
+            (_zona_from_url(url) if url else None)
+            or _zona_from_html(page_text, soup)
+        )
 
     return data
 
