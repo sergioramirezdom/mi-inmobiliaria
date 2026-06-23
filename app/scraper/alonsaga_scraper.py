@@ -63,20 +63,22 @@ class AlonsagaScraper:
                 data["estado"] = keyword.capitalize()
                 return data
 
-        # Title
+        # Title: strip "Alonsaga Servicios Inmobiliarios - " prefix
         h1 = soup.find("h1")
         if h1:
-            data["titulo"] = h1.get_text(strip=True)
+            title = h1.get_text(strip=True)
+            title = re.sub(r"^Alonsaga\s+[^-]+-\s*", "", title, flags=re.IGNORECASE)
+            data["titulo"] = title
 
         # Price: format "180.000 €" or "180.000€"
         price_match = re.search(r"([\d.]+(?:,\d+)?)\s*€", page_text)
         if price_match:
             data["precio"] = _parse_price_eu(price_match.group(1))
 
-        # Numeric fields via regex
+        # Numeric fields via regex (format: "Habitaciones 3", "Baños 1", "75 m²")
         patterns = [
-            (r"(\d+)\s*[Hh]abitaciones?", "habitaciones"),
-            (r"(\d+)\s*[Bb]años?", "banos"),
+            (r"[Hh]abitaciones?\s+(\d+)", "habitaciones"),
+            (r"[Bb]años?\s+(\d+)", "banos"),
             (r"([\d.,]+)\s*m²", "superficie_m2"),
         ]
         for pattern, field in patterns:
@@ -103,12 +105,12 @@ class AlonsagaScraper:
         if fotos:
             data["fotos"] = fotos
 
-        # Description: first block element with >150 chars and no nested block children
-        for tag in soup.find_all(["div", "section", "p"]):
-            text = tag.get_text(strip=True)
-            if len(text) > 150 and not tag.find_all(["div", "section"]):
-                data.setdefault("descripcion", text[:2000])
-                break
+        # Description: alonsaga puts the full text in div.hidden
+        hidden = soup.select_one("div.hidden")
+        if hidden:
+            desc = hidden.get_text(strip=True)
+            if len(desc) > 50:
+                data["descripcion"] = desc[:2000]
 
         return data
 
