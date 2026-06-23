@@ -8,6 +8,7 @@ from bs4 import BeautifulSoup
 
 from .exceptions import ParsingException
 from .config import ScraperConfig
+from .zona_utils import extract_from_url as _zona_from_url, extract_from_html as _zona_from_html
 import asyncio
 import httpx
 
@@ -97,6 +98,9 @@ class PuertoInmobiliariaScraper:
 
             # Add detection date (when we scraped it)
             enriched_data["fecha_publicacion"] = datetime.utcnow().isoformat()
+
+            if not enriched_data.get("barrio"):
+                enriched_data["barrio"] = _zona_from_url(property_url) or _zona_from_html(content, soup)
 
             self.logger.debug(f"✓ Extracted details: {list(enriched_data.keys())}")
             return enriched_data

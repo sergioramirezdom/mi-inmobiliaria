@@ -8,6 +8,7 @@ from bs4 import BeautifulSoup
 
 from .exceptions import ParsingException
 from .config import ScraperConfig
+from .zona_utils import extract_from_url as _zona_from_url, extract_from_html as _zona_from_html
 import httpx
 
 
@@ -135,6 +136,10 @@ class MobiliaScraper:
                 data["amenidades"] = amenidades
 
             data["fecha_publicacion"] = datetime.utcnow().isoformat()
+
+            if not data.get("barrio"):
+                data["barrio"] = _zona_from_url(property_url) or _zona_from_html(content, soup)
+
             self.logger.debug(f"Extracted: {list(data.keys())}")
             return data
 
