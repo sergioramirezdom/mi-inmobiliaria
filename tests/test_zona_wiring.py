@@ -2,8 +2,16 @@
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "app"))
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import MagicMock, patch
 import pytest
+
+# Python 3.7 compatibility: AsyncMock is available in 3.8+
+try:
+    from unittest.mock import AsyncMock
+except ImportError:
+    class AsyncMock(MagicMock):
+        async def __call__(self, *args, **kwargs):
+            return super().__call__(*args, **kwargs)
 
 
 @pytest.mark.asyncio
