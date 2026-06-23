@@ -19,6 +19,7 @@ from .jimenezruiz_scraper import JimenezRuizScraper
 from .manual_scraper import ManualScraper
 from .puertopiso_scraper import PuertoPisoScraper
 from .alonsaga_scraper import AlonsagaScraper
+from .description_enricher import extract_barrio_from_text
 from .config import ScraperConfig
 from db.models import Fuente, Propiedad, PrecioHistorico
 
@@ -270,6 +271,13 @@ class PaginatedScraper:
                             raw_data.update(details)
                         except Exception as e:
                             self.logger.warning(f"Could not enrich property: {e}")
+
+                        # Auto-apply barrio from description if still missing
+                        if not raw_data.get("barrio"):
+                            raw_data["barrio"] = extract_barrio_from_text(
+                                raw_data.get("titulo", ""),
+                                raw_data.get("descripcion", ""),
+                            )
 
                         # Skip sold properties (don't save them)
                         if not raw_data.get("activa", True):

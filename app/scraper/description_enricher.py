@@ -150,3 +150,32 @@ def extract_suggestions(prop) -> Dict[str, Suggestion]:
                     break
 
     return suggestions
+
+
+def extract_barrio_from_text(titulo: str, descripcion: str) -> Optional[str]:
+    """
+    Extract barrio/zona from free text (titulo + descripcion).
+    Returns cleaned string or None. Does not require a DB object.
+    """
+    titulo = titulo or ""
+    descripcion = descripcion or ""
+    raw = " ".join(filter(None, [titulo, descripcion]))
+    if not raw:
+        return None
+
+    raw_lower = raw.lower()
+    zone_patterns = [
+        r"urbanizaci[oó]n\s+([\wáéíóúñÁÉÍÓÚÑ][^,.\n]{2,30}?)(?=\s*[,.\n]|$)",
+        r"urb\.\s+([\wáéíóúñÁÉÍÓÚÑ][^,.\n]{2,30}?)(?=\s*[,.\n]|$)",
+        r"zona\s+([\wáéíóúñÁÉÍÓÚÑ][^,.\n]{2,25}?)(?=\s*[,.\n]|$)",
+        r"barrio\s+(?:de\s+)?([\wáéíóúñÁÉÍÓÚÑ][^,.\n]{2,25}?)(?=\s*[,.\n]|$)",
+    ]
+    stopwords = {"la", "el", "los", "las", "un", "una", "del", "de"}
+    for pattern in zone_patterns:
+        m = re.search(pattern, raw_lower)
+        if m:
+            zona = m.group(1).strip().title()
+            if len(zona) > 2 and zona.lower() not in stopwords:
+                return zona
+
+    return None
