@@ -159,3 +159,22 @@ def _extract_fotos(soup: BeautifulSoup, property_id: str) -> List[str]:
             seen.add(base)
             fotos.append(base)
     return fotos
+
+
+def _extract_room_count(soup: BeautifulSoup, icon_class: str) -> Optional[int]:
+    """Read the numeric badge next to a feature icon inside #inmueble2_caracteristicas.
+
+    Scoped to that container because the 'similares' widget further down the
+    page reuses the same fa-bed/fa-bath icon classes for other properties.
+    """
+    container = soup.select_one("#inmueble2_caracteristicas")
+    if not container:
+        return None
+    icon = container.select_one(f"i.{icon_class}")
+    if not icon:
+        return None
+    span = icon.find_next_sibling("span")
+    if not span:
+        return None
+    text = span.get_text(strip=True)
+    return int(text) if text.isdigit() else None

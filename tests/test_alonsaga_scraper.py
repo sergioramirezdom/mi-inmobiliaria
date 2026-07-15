@@ -7,6 +7,7 @@ from scraper.alonsaga_scraper import (
     _extract_tipo_from_url,
     _extract_property_id_from_url,
     _extract_fotos,
+    _extract_room_count,
 )
 from bs4 import BeautifulSoup
 
@@ -95,6 +96,48 @@ def test_extract_fotos_dedupes_compressed_variant():
 def test_extract_fotos_empty_when_none():
     soup = BeautifulSoup("<html><body><p>no images</p></body></html>", "lxml")
     assert _extract_fotos(soup, "5022") == []
+
+
+def test_extract_room_count_reads_icon_badge():
+    html = """
+    <html><body>
+      <div id="inmueble2_caracteristicas">
+        <div><i class='fas fa-bed'></i><span class='p-2'>5</span></div>
+        <div><i class='fas fa-bath'></i><span class='p-2'>2</span></div>
+        <div><i class='fas fa-warehouse'></i><span class='p-2'>1</span></div>
+      </div>
+    </body></html>
+    """
+    soup = BeautifulSoup(html, "lxml")
+    assert _extract_room_count(soup, "fa-bed") == 5
+    assert _extract_room_count(soup, "fa-bath") == 2
+
+
+def test_extract_room_count_ignores_similares_widget():
+    """The 'similares' carousel reuses fa-bed/fa-bath outside #inmueble2_caracteristicas — must be ignored."""
+    html = """
+    <html><body>
+      <div id="inmueble2_caracteristicas">
+        <div><i class='fas fa-bed'></i><span class='p-2'>5</span></div>
+      </div>
+      <div class="inmuebles_similares_habitaciones">
+        <i class="fas fa-bed"></i><span class="p-2">99</span>
+      </div>
+    </body></html>
+    """
+    soup = BeautifulSoup(html, "lxml")
+    assert _extract_room_count(soup, "fa-bed") == 5
+
+
+def test_extract_room_count_none_when_container_missing():
+    soup = BeautifulSoup("<html><body><p>nothing here</p></body></html>", "lxml")
+    assert _extract_room_count(soup, "fa-bed") is None
+
+
+def test_extract_room_count_none_when_icon_missing():
+    html = "<div id='inmueble2_caracteristicas'><div><i class='fas fa-bath'></i><span>2</span></div></div>"
+    soup = BeautifulSoup(html, "lxml")
+    assert _extract_room_count(soup, "fa-bed") is None
 
 
 import asyncio
