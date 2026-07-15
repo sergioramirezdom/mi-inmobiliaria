@@ -64,34 +64,32 @@ class AlonsagaScraper:
                 data["estado"] = keyword.capitalize()
                 return data
 
-        # Title: strip "Alonsaga Servicios Inmobiliarios - " prefix
+        # Title: h1 text as-is (the old "Alonsaga X - " prefix no longer appears)
         h1 = soup.find("h1")
         if h1:
-            title = h1.get_text(strip=True)
-            title = re.sub(r"^Alonsaga\s+[^-]+-\s*", "", title, flags=re.IGNORECASE)
-            data["titulo"] = title
+            data["titulo"] = h1.get_text(strip=True)
 
         # Price: format "180.000 €" or "180.000€"
         price_match = re.search(r"([\d.]+(?:,\d+)?)\s*€", page_text)
         if price_match:
             data["precio"] = _parse_price_eu(price_match.group(1))
 
-        # Numeric fields via regex (format: "Habitaciones 3", "Baños 1", "75 m²")
-        patterns = [
-            (r"[Hh]abitaciones?\s+(\d+)", "habitaciones"),
-            (r"[Bb]años?\s+(\d+)", "banos"),
-            (r"([\d.,]+)\s*m²", "superficie_m2"),
-        ]
-        for pattern, field in patterns:
-            if field in data:
-                continue
-            m = re.search(pattern, page_text)
-            if m:
-                val = m.group(1).replace(".", "").replace(",", ".")
-                try:
-                    data[field] = int(float(val)) if field in ("habitaciones", "banos") else float(val)
-                except (ValueError, TypeError):
-                    pass
+        # Superficie via regex (format: "75 m²")
+        m2_match = re.search(r"([\d.,]+)\s*m²", page_text)
+        if m2_match:
+            val = m2_match.group(1).replace(".", "").replace(",", ".")
+            try:
+                data["superficie_m2"] = float(val)
+            except (ValueError, TypeError):
+                pass
+
+        # Habitaciones/banos: icon badges inside #inmueble2_caracteristicas
+        habitaciones = _extract_room_count(soup, "fa-bed")
+        if habitaciones is not None:
+            data["habitaciones"] = habitaciones
+        banos = _extract_room_count(soup, "fa-bath")
+        if banos is not None:
+            data["banos"] = banos
 
         # Fixed municipio
         data["municipio"] = "El Puerto de Santa María"
@@ -108,12 +106,10 @@ class AlonsagaScraper:
             if fotos:
                 data["fotos"] = fotos
 
-        # Description: alonsaga puts the full text in div.hidden
-        hidden = soup.select_one("div.hidden")
-        if hidden:
-            desc = hidden.get_text(strip=True)
-            if len(desc) > 50:
-                data["descripcion"] = desc[:2000]
+        # Description: alonsaga puts the full text in p#inmueble2_datos_adicionales
+        desc = _extract_descripcion(soup)
+        if desc:
+            data["descripcion"] = desc
 
         # Zona fallback: URL first, then HTML
         if not data.get("barrio"):
