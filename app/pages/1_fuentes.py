@@ -95,12 +95,12 @@ SCRAPER_CONFIG_TEMPLATES = {
     "alonsaga": {
         "detail_scraper_type": "alonsaga",
         "selectors": {
-            "property_container": "div.cardAnuncio",
-            "title": "span.titulo",
-            "price": "div.precio",
+            "property_container": "div.listado5_contendor_inmueble",
+            "title": "div.listado5_contendor_inmueble_datos_titulo",
         },
-        "pagination_param": "Pagina",
-        "pagination_start": 0,
+        "patterns": {"price_pattern": r"([\d.,]+)\s*€"},
+        "pagination_param": "pag",
+        "pagination_start": 1,
         "pagination_skip_first": True,
         "use_results_per_page": False,
     },
