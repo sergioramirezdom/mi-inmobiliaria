@@ -185,6 +185,14 @@ class PropiedadCRUD:
         session.refresh(propiedad)
         return propiedad
 
+    @staticmethod
+    def get_distinct_barrios(session: Session) -> List[str]:
+        """Get all distinct non-empty barrio values, sorted alphabetically (case-insensitive)."""
+        rows = session.exec(
+            select(Propiedad.barrio).where(Propiedad.barrio.is_not(None)).distinct()
+        ).all()
+        return sorted({b.strip() for b in rows if b and b.strip()}, key=str.lower)
+
 
 # CRUD Helpers for FiltroAlerta
 class FiltroAlertaCRUD:
