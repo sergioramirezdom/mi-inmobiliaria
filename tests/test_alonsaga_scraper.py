@@ -8,6 +8,7 @@ from scraper.alonsaga_scraper import (
     _extract_property_id_from_url,
     _extract_fotos,
     _extract_room_count,
+    _extract_descripcion,
 )
 from bs4 import BeautifulSoup
 
@@ -139,6 +140,29 @@ def test_extract_room_count_none_when_icon_missing():
     soup = BeautifulSoup(html, "lxml")
     assert _extract_room_count(soup, "fa-bed") is None
 
+def test_extract_descripcion_reads_new_container():
+    long_text = "Casa reformada con jardín y piscina. " * 3
+    html = f"<p id='inmueble2_datos_adicionales'>{long_text}</p>"
+    soup = BeautifulSoup(html, "lxml")
+    assert _extract_descripcion(soup) == long_text.strip()
+
+
+def test_extract_descripcion_none_when_missing():
+    soup = BeautifulSoup("<html><body><p>otro parrafo</p></body></html>", "lxml")
+    assert _extract_descripcion(soup) is None
+
+
+def test_extract_descripcion_none_when_too_short():
+    soup = BeautifulSoup("<p id='inmueble2_datos_adicionales'>corto</p>", "lxml")
+    assert _extract_descripcion(soup) is None
+
+
+def test_extract_descripcion_truncates_to_2000_chars():
+    long_text = "x" * 3000
+    html = f"<p id='inmueble2_datos_adicionales'>{long_text}</p>"
+    soup = BeautifulSoup(html, "lxml")
+    result = _extract_descripcion(soup)
+    assert len(result) == 2000
 
 import asyncio
 from unittest.mock import patch, MagicMock

@@ -178,3 +178,12 @@ def _extract_room_count(soup: BeautifulSoup, icon_class: str) -> Optional[int]:
         return None
     text = span.get_text(strip=True)
     return int(text) if text.isdigit() else None
+
+
+def _extract_descripcion(soup: BeautifulSoup) -> Optional[str]:
+    """Alonsaga puts the full description text in p#inmueble2_datos_adicionales."""
+    p = soup.select_one("p#inmueble2_datos_adicionales")
+    if not p:
+        return None
+    text = p.get_text(strip=True)
+    return text[:2000] if len(text) > 50 else None
