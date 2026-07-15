@@ -69,10 +69,20 @@ class AlonsagaScraper:
         if h1:
             data["titulo"] = h1.get_text(strip=True)
 
+        if _is_alquiler(data.get("titulo")):
+            data["activa"] = False
+            data["estado"] = "Alquiler"
+            return data
+
         # Price: format "180.000 €" or "180.000€"
         price_match = re.search(r"([\d.]+(?:,\d+)?)\s*€", page_text)
         if price_match:
             data["precio"] = _parse_price_eu(price_match.group(1))
+
+        if _is_alquiler(precio=data.get("precio")):
+            data["activa"] = False
+            data["estado"] = "Alquiler"
+            return data
 
         # Superficie: icon badge inside #inmueble2_caracteristicas
         superficie = _extract_superficie_m2(soup)
@@ -121,6 +131,20 @@ def _parse_price_eu(text: str) -> Optional[float]:
         return float(text)
     except (ValueError, TypeError):
         return None
+
+
+def _is_alquiler(titulo: Optional[str] = None, precio: Optional[float] = None) -> bool:
+    """Detect a rental listing that leaked into a venta-filtered search.
+
+    Two independent signals, checked separately since title and price are
+    extracted at different points: the title says "alquiler" outright, or
+    the price is far too low to be a sale price (it's actually monthly rent).
+    """
+    if titulo is not None:
+        return "alquiler" in titulo.lower()
+    if precio is not None:
+        return precio < 3000
+    return False
 
 
 def _extract_tipo_from_url(url: str) -> Optional[str]:

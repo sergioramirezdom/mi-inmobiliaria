@@ -10,6 +10,7 @@ from scraper.alonsaga_scraper import (
     _extract_room_count,
     _extract_superficie_m2,
     _extract_descripcion,
+    _is_alquiler,
 )
 from bs4 import BeautifulSoup
 
@@ -197,6 +198,34 @@ def test_extract_descripcion_truncates_to_2000_chars():
     soup = BeautifulSoup(html, "lxml")
     result = _extract_descripcion(soup)
     assert len(result) == 2000
+
+def test_is_alquiler_detects_title_keyword():
+    assert _is_alquiler(titulo="Alquiler de piso en El Puerto de Santa María") is True
+
+
+def test_is_alquiler_title_case_insensitive():
+    assert _is_alquiler(titulo="ALQUILER de piso en El Puerto") is True
+
+
+def test_is_alquiler_false_for_venta_title():
+    assert _is_alquiler(titulo="Venta de piso en El Puerto de Santa María") is False
+
+
+def test_is_alquiler_detects_low_price():
+    assert _is_alquiler(precio=650.0) is True
+
+
+def test_is_alquiler_false_for_normal_sale_price():
+    assert _is_alquiler(precio=235000.0) is False
+
+
+def test_is_alquiler_price_boundary_not_alquiler():
+    assert _is_alquiler(precio=3000.0) is False
+
+
+def test_is_alquiler_false_when_nothing_given():
+    assert _is_alquiler() is False
+
 
 import asyncio
 from unittest.mock import patch, MagicMock
