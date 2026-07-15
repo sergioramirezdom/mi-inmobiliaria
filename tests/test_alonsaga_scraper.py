@@ -1,4 +1,4 @@
-"""Unit tests for AlonsagaScraper â pure logic, no HTTP calls."""
+"""Unit tests for AlonsagaScraper — pure logic, no HTTP calls."""
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "app"))
 
@@ -28,17 +28,17 @@ def test_parse_price_eu_invalid():
 
 
 def test_extract_tipo_casa():
-    url = "https://www.alonsaga.com/Venta-Casa-El-Puerto-de-Santa-MarÃ­a-crevillet-pinar-alto-5022"
+    url = "https://www.alonsaga.com/Venta-Casa-El-Puerto-de-Santa-María-crevillet-pinar-alto-5022"
     assert _extract_tipo_from_url(url) == "casa"
 
 
 def test_extract_tipo_piso():
-    url = "https://www.alonsaga.com/Venta-Piso-El-Puerto-de-Santa-MarÃ­a-Carretera-de-sanlucar-3991"
+    url = "https://www.alonsaga.com/Venta-Piso-El-Puerto-de-Santa-María-Carretera-de-sanlucar-3991"
     assert _extract_tipo_from_url(url) == "piso"
 
 
 def test_extract_tipo_with_trailing_slash():
-    url = "https://www.alonsaga.com/Venta-Vivienda-El-Puerto-de-Santa-MarÃ­a-Vistahermosa-1234/"
+    url = "https://www.alonsaga.com/Venta-Vivienda-El-Puerto-de-Santa-María-Vistahermosa-1234/"
     assert _extract_tipo_from_url(url) == "vivienda"
 
 
