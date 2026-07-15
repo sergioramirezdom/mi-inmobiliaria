@@ -102,9 +102,11 @@ class AlonsagaScraper:
             data["tipo_propiedad"] = tipo
 
         # Photos
-        fotos = _extract_fotos(soup)
-        if fotos:
-            data["fotos"] = fotos
+        property_id = _extract_property_id_from_url(url)
+        if property_id:
+            fotos = _extract_fotos(soup, property_id)
+            if fotos:
+                data["fotos"] = fotos
 
         # Description: alonsaga puts the full text in div.hidden
         hidden = soup.select_one("div.hidden")
@@ -143,10 +145,17 @@ def _extract_property_id_from_url(url: str) -> Optional[str]:
     return m.group(1) if m else None
 
 
-def _extract_fotos(soup: BeautifulSoup) -> List[str]:
-    """Return all img src URLs that belong to the alonsaga photo CDN."""
-    return [
-        img["src"]
-        for img in soup.find_all("img", src=True)
-        if "fotoshs.imghs.net" in img["src"]
-    ]
+def _extract_fotos(soup: BeautifulSoup, property_id: str) -> List[str]:
+    """Return unique photo URLs belonging to this property (excludes 'similares' widget photos)."""
+    marker = f"/wm/{property_id}_"
+    seen = set()
+    fotos = []
+    for img in soup.find_all("img", src=True):
+        src = img["src"]
+        if marker not in src:
+            continue
+        base = src.split("?")[0]
+        if base not in seen:
+            seen.add(base)
+            fotos.append(base)
+    return fotos

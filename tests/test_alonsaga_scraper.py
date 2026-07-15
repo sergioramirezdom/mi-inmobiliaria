@@ -62,26 +62,39 @@ def test_extract_property_id_none_when_missing():
     assert _extract_property_id_from_url(url) is None
 
 
-def test_extract_fotos_filters_by_domain():
+def test_extract_fotos_filters_by_property_id():
     html = """
     <html><body>
-      <img src="https://fotoshs.imghs.net/path/photo1.jpg">
+      <img src="https://www.inmoserver.com/fotos/1266/wm/5022_abc123.jpg">
+      <img src="https://www.inmoserver.com/fotos/1266/wm/5022_def456.jpg?auto=compress&cs=tinysrgb&h=650&w=940">
+      <img src="https://www.inmoserver.com/fotos/1266/wm/3945_other.jpg">
       <img src="https://other.com/photo.jpg">
-      <img src="https://fotoshs.imghs.net/path/photo2.jpg">
       <img src="/static/logo.png">
     </body></html>
     """
     soup = BeautifulSoup(html, "lxml")
-    fotos = _extract_fotos(soup)
+    fotos = _extract_fotos(soup, "5022")
     assert fotos == [
-        "https://fotoshs.imghs.net/path/photo1.jpg",
-        "https://fotoshs.imghs.net/path/photo2.jpg",
+        "https://www.inmoserver.com/fotos/1266/wm/5022_abc123.jpg",
+        "https://www.inmoserver.com/fotos/1266/wm/5022_def456.jpg",
     ]
+
+
+def test_extract_fotos_dedupes_compressed_variant():
+    html = """
+    <html><body>
+      <img src="https://www.inmoserver.com/fotos/1266/wm/5022_abc123.jpg">
+      <img src="https://www.inmoserver.com/fotos/1266/wm/5022_abc123.jpg?auto=compress&cs=tinysrgb&h=650&w=940">
+    </body></html>
+    """
+    soup = BeautifulSoup(html, "lxml")
+    fotos = _extract_fotos(soup, "5022")
+    assert fotos == ["https://www.inmoserver.com/fotos/1266/wm/5022_abc123.jpg"]
 
 
 def test_extract_fotos_empty_when_none():
     soup = BeautifulSoup("<html><body><p>no images</p></body></html>", "lxml")
-    assert _extract_fotos(soup) == []
+    assert _extract_fotos(soup, "5022") == []
 
 
 import asyncio
