@@ -140,6 +140,7 @@ def test_extract_room_count_none_when_icon_missing():
     soup = BeautifulSoup(html, "lxml")
     assert _extract_room_count(soup, "fa-bed") is None
 
+
 def test_extract_descripcion_reads_new_container():
     long_text = "Casa reformada con jardín y piscina. " * 3
     html = f"<p id='inmueble2_datos_adicionales'>{long_text}</p>"
