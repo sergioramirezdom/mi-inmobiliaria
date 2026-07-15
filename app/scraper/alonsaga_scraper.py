@@ -137,6 +137,13 @@ def _extract_tipo_from_url(url: str) -> Optional[str]:
     return None
 
 
+
+def _extract_property_id_from_url(url: str) -> Optional[str]:
+    """Extract the numeric property id at the end of the detail URL."""
+    m = re.search(r"-(\d+)/?$", url)
+    return m.group(1) if m else None
+
+
 def _extract_fotos(soup: BeautifulSoup) -> List[str]:
     """Return all img src URLs that belong to the alonsaga photo CDN."""
     return [
