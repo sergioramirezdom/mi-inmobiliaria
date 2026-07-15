@@ -74,14 +74,10 @@ class AlonsagaScraper:
         if price_match:
             data["precio"] = _parse_price_eu(price_match.group(1))
 
-        # Superficie via regex (format: "75 m²")
-        m2_match = re.search(r"([\d.,]+)\s*m²", page_text)
-        if m2_match:
-            val = m2_match.group(1).replace(".", "").replace(",", ".")
-            try:
-                data["superficie_m2"] = float(val)
-            except (ValueError, TypeError):
-                pass
+        # Superficie: icon badge inside #inmueble2_caracteristicas
+        superficie = _extract_superficie_m2(soup)
+        if superficie is not None:
+            data["superficie_m2"] = superficie
 
         # Habitaciones/banos: icon badges inside #inmueble2_caracteristicas
         habitaciones = _extract_room_count(soup, "fa-bed")
@@ -174,6 +170,32 @@ def _extract_room_count(soup: BeautifulSoup, icon_class: str) -> Optional[int]:
         return None
     text = span.get_text(strip=True)
     return int(text) if text.isdigit() else None
+
+
+def _extract_superficie_m2(soup: BeautifulSoup) -> Optional[float]:
+    """Read the surface-area badge ('315 m<sup>2</sup>') inside #inmueble2_caracteristicas.
+
+    The badge's "m²" uses a <sup> tag for the superscript 2, so it never
+    appears as a literal "m²" string in page text — must be read from the
+    span next to the fa-vector-square icon instead.
+    """
+    container = soup.select_one("#inmueble2_caracteristicas")
+    if not container:
+        return None
+    icon = container.select_one("i.fa-vector-square")
+    if not icon:
+        return None
+    span = icon.find_next_sibling("span")
+    if not span:
+        return None
+    m = re.match(r"([\d.,]+)\s*m", span.get_text(strip=True))
+    if not m:
+        return None
+    val = m.group(1).replace(".", "").replace(",", ".")
+    try:
+        return float(val)
+    except (ValueError, TypeError):
+        return None
 
 
 def _extract_descripcion(soup: BeautifulSoup) -> Optional[str]:

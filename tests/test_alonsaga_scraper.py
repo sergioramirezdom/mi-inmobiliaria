@@ -8,6 +8,7 @@ from scraper.alonsaga_scraper import (
     _extract_property_id_from_url,
     _extract_fotos,
     _extract_room_count,
+    _extract_superficie_m2,
     _extract_descripcion,
 )
 from bs4 import BeautifulSoup
@@ -139,6 +140,38 @@ def test_extract_room_count_none_when_icon_missing():
     html = "<div id='inmueble2_caracteristicas'><div><i class='fas fa-bath'></i><span>2</span></div></div>"
     soup = BeautifulSoup(html, "lxml")
     assert _extract_room_count(soup, "fa-bed") is None
+
+
+def test_extract_superficie_m2_reads_sup_tag_badge():
+    html = """
+    <div id="inmueble2_caracteristicas">
+      <i class="fa-solid fa-vector-square"></i><span class="p-2">315 m<sup>2</sup></span>
+      <i class="fas fa-bed"></i><span class="p-2">5</span>
+    </div>
+    """
+    soup = BeautifulSoup(html, "lxml")
+    assert _extract_superficie_m2(soup) == 315.0
+
+
+def test_extract_superficie_m2_handles_thousands_and_decimal():
+    html = """
+    <div id="inmueble2_caracteristicas">
+      <i class="fa-solid fa-vector-square"></i><span class="p-2">1.234,5 m<sup>2</sup></span>
+    </div>
+    """
+    soup = BeautifulSoup(html, "lxml")
+    assert _extract_superficie_m2(soup) == 1234.5
+
+
+def test_extract_superficie_m2_none_when_container_missing():
+    soup = BeautifulSoup("<html><body><p>nothing here</p></body></html>", "lxml")
+    assert _extract_superficie_m2(soup) is None
+
+
+def test_extract_superficie_m2_none_when_icon_missing():
+    html = "<div id='inmueble2_caracteristicas'><i class='fas fa-bed'></i><span>5</span></div>"
+    soup = BeautifulSoup(html, "lxml")
+    assert _extract_superficie_m2(soup) is None
 
 
 def test_extract_descripcion_reads_new_container():
