@@ -137,7 +137,6 @@ def _extract_tipo_from_url(url: str) -> Optional[str]:
     return None
 
 
-
 def _extract_property_id_from_url(url: str) -> Optional[str]:
     """Extract the numeric property id at the end of the detail URL."""
     m = re.search(r"-(\d+)/?$", url)

@@ -46,6 +46,7 @@ def test_extract_tipo_unknown():
     url = "https://www.alonsaga.com/encargo_venta"
     assert _extract_tipo_from_url(url) is None
 
+
 def test_extract_property_id():
     url = "https://www.alonsaga.com/Venta-Casa-El-Puerto-de-Santa-María-crevillet-pinar-alto-5022"
     assert _extract_property_id_from_url(url) == "5022"
@@ -59,7 +60,6 @@ def test_extract_property_id_trailing_slash():
 def test_extract_property_id_none_when_missing():
     url = "https://www.alonsaga.com/encargo_venta"
     assert _extract_property_id_from_url(url) is None
-
 
 
 def test_extract_fotos_filters_by_domain():
