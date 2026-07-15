@@ -1,5 +1,6 @@
 """Página de gestión de filtros y alertas."""
 
+import logging
 import streamlit as st
 import sys
 import json
@@ -7,6 +8,8 @@ from pathlib import Path
 from sqlmodel import Session, select
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
+
+logger = logging.getLogger(__name__)
 
 from db.database import engine, PropiedadCRUD
 from db.models import FiltroAlerta, Propiedad
@@ -30,7 +33,8 @@ def get_distinct_barrios_cached() -> list[str]:
     try:
         with Session(engine) as session:
             return PropiedadCRUD.get_distinct_barrios(session)
-    except Exception:
+    except Exception as e:
+        logger.warning(f"Could not load barrio suggestions: {e}")
         return []
 
 
