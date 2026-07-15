@@ -26,18 +26,23 @@ def test_parse_price_eu_invalid():
     assert _parse_price_eu("no price") is None
 
 
+def test_extract_tipo_casa():
+    url = "https://www.alonsaga.com/Venta-Casa-El-Puerto-de-Santa-María-crevillet-pinar-alto-5022"
+    assert _extract_tipo_from_url(url) == "casa"
+
+
 def test_extract_tipo_piso():
-    url = "https://www.alonsaga.com/detalle/en_venta/piso/cadiz/el_puerto_de_santa_maria/pinar_alto/123/"
+    url = "https://www.alonsaga.com/Venta-Piso-El-Puerto-de-Santa-María-Carretera-de-sanlucar-3991"
     assert _extract_tipo_from_url(url) == "piso"
 
 
-def test_extract_tipo_chalet():
-    url = "https://www.alonsaga.com/detalle/en_venta/chalet/cadiz/el_puerto/zona/456/"
-    assert _extract_tipo_from_url(url) == "chalet"
+def test_extract_tipo_with_trailing_slash():
+    url = "https://www.alonsaga.com/Venta-Vivienda-El-Puerto-de-Santa-María-Vistahermosa-1234/"
+    assert _extract_tipo_from_url(url) == "vivienda"
 
 
 def test_extract_tipo_unknown():
-    url = "https://www.alonsaga.com/detalle/en_venta/cadiz/el_puerto/"
+    url = "https://www.alonsaga.com/encargo_venta"
     assert _extract_tipo_from_url(url) is None
 
 

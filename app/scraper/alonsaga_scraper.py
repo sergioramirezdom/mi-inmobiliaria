@@ -130,17 +130,10 @@ def _parse_price_eu(text: str) -> Optional[float]:
 
 
 def _extract_tipo_from_url(url: str) -> Optional[str]:
-    """Extract property type from URL path: /detalle/en_venta/{tipo}/... → tipo"""
-    m = re.search(r"/en_venta/([^/]+)/", url)
+    """Extract property type from URL path: /Venta-{Tipo}-{Municipio}-...-{id} → tipo (lowercase)"""
+    m = re.search(r"/Venta-([A-Za-z]+)-", url)
     if m:
-        tipo = m.group(1)
-        tipo_map = {
-            "piso": "piso", "chalet": "chalet", "casa": "casa",
-            "local": "local", "garaje": "garaje", "oficina": "oficina",
-            "terreno": "terreno", "finca": "finca", "duplex": "duplex",
-            "atico": "atico", "apartamento": "apartamento",
-        }
-        return tipo_map.get(tipo, tipo) if tipo not in ("cadiz", "el_puerto_de_santa_maria") else None
+        return m.group(1).lower()
     return None
 
 
