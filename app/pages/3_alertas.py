@@ -8,7 +8,7 @@ from sqlmodel import Session, select
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from db.database import engine
+from db.database import engine, PropiedadCRUD
 from db.models import FiltroAlerta, Propiedad
 from notifications.filter_matcher import FilterMatcher
 
@@ -18,6 +18,20 @@ TIPOS_PROPIEDAD = ["", "Piso", "Apartamento", "Casa", "Dúplex", "Estudio", "Loc
 ESTADOS = ["", "Nueva", "Buen estado", "Para reformar", "Reformado", "En construcción"]
 AMENIDADES_OPTS = ["Ascensor", "Garaje", "Piscina", "Terraza", "Balcón", "Aire acondicionado",
                    "Amueblado", "Trastero", "Patio", "Calefacción"]
+
+
+@st.cache_data(ttl=300)
+def get_distinct_barrios_cached() -> list[str]:
+    """Cached list of existing barrio values, used as multiselect suggestions.
+
+    Suggestions are a non-essential nicety (free typing always works), so a
+    DB error here should not block rendering the form.
+    """
+    try:
+        with Session(engine) as session:
+            return PropiedadCRUD.get_distinct_barrios(session)
+    except Exception:
+        return []
 
 
 def build_criteria(precio_min, precio_max, m2_min, m2_max, habitaciones, banos,
@@ -79,8 +93,16 @@ def criteria_form(prefix: str, defaults: dict = None):
         estado_idx = estado_opts.index(estado_val) if estado_val in estado_opts else 0
         estado = st.selectbox("Estado", estado_opts, index=estado_idx, key=f"{prefix}_estado")
 
-    barrio = st.text_input("Zona/Barrio (búsqueda parcial)", value=d.get("barrio", ""),
-                           key=f"{prefix}_barrio")
+    barrios_existentes = get_distinct_barrios_cached()
+    barrio_val = d.get("barrio", "")
+    barrio_default = [b.strip() for b in barrio_val.split(",") if b.strip()] if barrio_val else []
+    barrio = st.multiselect(
+        "Zona/Barrio (una o varias — coincide con cualquiera)",
+        options=sorted(set(barrios_existentes) | set(barrio_default)),
+        default=barrio_default,
+        accept_new_options=True,
+        key=f"{prefix}_barrio",
+    )
 
     amenidades_val = d.get("amenidades", "")
     amenidades_default = [a.strip() for a in amenidades_val.split(",") if a.strip()] if amenidades_val else []
