@@ -7,7 +7,16 @@
 
 Reescribir la página de Estadísticas (`app/pages/4_estadisticas.py`) como un cuadro de mando orientado a **decisión de compra**: entender cómo respira el mercado (entradas, ventas, precios, presión), ver tendencias de precio por barrio, y obtener un rango de oferta sugerido y justificado para cada propiedad favorita, utilizable como argumentario en una negociación o contraoferta.
 
-**Restricciones:** Streamlit puro sin dependencias nuevas (pandas ya presente; gráficos con `st.line_chart`/`st.bar_chart`). Compatible con Streamlit Cloud. Volumen pequeño (<500 propiedades). La valoración es una **heurística transparente por comparables**, no un modelo estadístico: cada ajuste se muestra y justifica; nada de regresiones.
+**Restricciones:** Streamlit + **Plotly** para todos los gráficos (única dependencia nueva: `plotly`, añadida a `requirements.txt`; renderizado vía `st.plotly_chart`, compatible con Streamlit Cloud). Volumen pequeño (<500 propiedades). La valoración es una **heurística transparente por comparables**, no un modelo estadístico: cada ajuste se muestra y justifica; nada de regresiones.
+
+**Estilo de gráficos:** todos los charts comparten un tema Plotly propio definido una
+vez en `app/ui/chart_theme.py`: paleta de colores consistente, fondo transparente
+(se integra con el tema claro/oscuro de Streamlit), tooltips unificados
+(`hovermode="x unified"` en series temporales), sin barra de herramientas de Plotly
+salvo zoom/pan, tipografía y márgenes compactos, y formato español de números
+(separador de miles con punto, sufijo €). Barras con esquinas y colores por
+categoría; líneas con suavizado ligero y marcadores en hover; deltas/tendencias en
+verde/rojo coherentes con la semántica compradora definida en §2.
 
 ## 1. Estructura de la página
 
@@ -36,13 +45,15 @@ aunque no interesen), y "solo favoritas" queda cubierto por la pestaña Ofertas.
 Deltas con `delta_color` correcto para un comprador: más oferta/bajadas/días = verde
 (mercado comprador); €/m² subiendo = rojo.
 
-**Gráficos:**
-1. Entradas nuevas por semana (últimas 12 semanas), `st.bar_chart`.
-2. Ventas por mes (todo el histórico disponible), `st.bar_chart`.
-3. Evolución mensual del €/m² mediano de activas, `st.line_chart` — calculado desde
-   `PrecioHistorico` unido a la superficie de cada propiedad (refleja bajadas de
-   precio, no solo altas nuevas). Para cada mes: mediana de (último precio registrado
-   del mes por propiedad / superficie), sobre propiedades con superficie conocida.
+**Gráficos (Plotly, tema común de §Estilo):**
+1. Entradas nuevas por semana (últimas 12 semanas) — barras con tooltip
+   "semana del D/M: N nuevas".
+2. Ventas por mes (todo el histórico disponible) — barras.
+3. Evolución mensual del €/m² mediano de activas — línea con área degradada bajo la
+   curva y tooltip unificado; calculado desde `PrecioHistorico` unido a la
+   superficie de cada propiedad (refleja bajadas de precio, no solo altas nuevas).
+   Para cada mes: mediana de (último precio registrado del mes por propiedad /
+   superficie), sobre propiedades con superficie conocida.
 
 Una línea de lectura interpretativa bajo los KPIs (texto fijo condicionado a los
 deltas, p. ej. "Más oferta y más bajadas que el mes pasado: margen para negociar").
@@ -64,10 +75,11 @@ Granularidad: campo `barrio`. Los barrios con <3 propiedades activas se agrupan 
 | % con bajada | precio_anterior≠NULL sobre activas |
 | Tendencia €/m² | Δ% de €/m² mediano: últimos 90 días vs 90 anteriores (desde PrecioHistorico), con ▲/▼/= |
 
-**Gráfico de evolución:** multiselect de barrios → `st.line_chart` de €/m² mediano
-mensual por barrio (misma serie mensual que Pulso, segmentada por barrio). Aviso
-bajo el gráfico si algún barrio seleccionado tiene meses con <3 propiedades
-("líneas con pocos datos, interpretar con cautela" listando cuáles).
+**Gráfico de evolución:** multiselect de barrios → líneas Plotly de €/m² mediano
+mensual por barrio (misma serie mensual que Pulso, segmentada por barrio): una
+línea coloreada por barrio, leyenda clicable para aislar series, tooltip unificado
+por mes. Aviso bajo el gráfico si algún barrio seleccionado tiene meses con <3
+propiedades ("líneas con pocos datos, interpretar con cautela" listando cuáles).
 
 ## 4. Pestaña 🎯 Ofertas
 
@@ -108,7 +120,10 @@ Resultado:
 - **Máximo razonable** = min(valor_estimado, precio anunciado)
 - **Oferta inicial sugerida** = Máximo razonable × (1 − suma de descuentos)
 
-Presentación: los dos números grandes (`st.metric`), desglose línea a línea de cada
+Presentación: los dos números grandes (`st.metric`), un **gráfico de rango** Plotly
+(barra horizontal tipo bullet: eje de precio con marcadores para oferta inicial,
+máximo razonable, valor estimado y precio anunciado, y los comparables como puntos
+sobre el mismo eje), desglose línea a línea de cada
 ajuste con su justificación en texto, y debajo la **tabla de comparables** (título,
 barrio, tipo, m², precio, €/m², estado activa/vendida, días en mercado si vendida,
 enlace al anuncio) para auditar la base del cálculo.
@@ -122,9 +137,10 @@ Mismo patrón que Propiedades 2.0 — lógica pura testeable separada de la pág
 
 | Archivo | Responsabilidad |
 |---|---|
-| `app/pages/4_estadisticas.py` | Orquestación: pestañas, selectores, métricas y gráficos |
-| `app/ui/market_stats.py` | Cálculos de Pulso y Zonas: funciones puras (entrada: lista de dicts / DataFrames; salida: DataFrames/dicts). Sin Streamlit, sin BD. |
-| `app/ui/offer_advisor.py` | Comparables + valoración + rango: funciones puras. Sin Streamlit, sin BD. |
+| `app/pages/4_estadisticas.py` | Orquestación: pestañas, selectores, métricas y render de gráficos |
+| `app/ui/market_stats.py` | Cálculos de Pulso y Zonas: funciones puras (entrada: lista de dicts / DataFrames; salida: DataFrames/dicts). Sin Streamlit, sin BD, sin Plotly. |
+| `app/ui/offer_advisor.py` | Comparables + valoración + rango: funciones puras. Sin Streamlit, sin BD, sin Plotly. |
+| `app/ui/chart_theme.py` | Tema Plotly común (colores, layout, formato español) y constructores de figuras: `line_chart(df, ...)`, `bar_chart(df, ...)`, `offer_range_chart(...)` que devuelven `go.Figure` listas para `st.plotly_chart`. |
 
 Datos: dos fetches cacheados en la página con `@st.cache_data(ttl=300)` que
 devuelven listas de dicts planos (nunca objetos ORM): uno de `Propiedad` (campos
@@ -150,6 +166,9 @@ cálculo posterior es pandas puro en memoria — con <500 propiedades es trivial
   ventana 180 días para vendidas, valor estimado, cada ajuste por separado y
   combinados, tope −5%, máximo razonable = min(estimado, anunciado), casos sin
   datos (sin superficie, sin comparables, sin vendidas de referencia).
+- `tests/test_chart_theme.py`: los constructores devuelven `go.Figure` con el nº de
+  trazas esperado y el layout del tema aplicado (smoke tests; el aspecto visual se
+  valida a mano).
 - Patrón de tests existente: `sys.path.insert` al dir `app`, funciones puras sin BD.
 
 ## Fuera de alcance
