@@ -210,11 +210,15 @@ def render_ofertas(props: list, now):
         st.info("No tienes favoritas todavía. Marca alguna con ❤️ en la página de Propiedades.")
         return
 
-    fav = st.selectbox(
-        "Favorita a valorar", favoritas,
-        format_func=lambda p: f"{(p['titulo'] or 'Sin título')[:60]} — "
-                              + (eur(p["precio"]) if p["precio"] else "sin precio"),
+    fav_id = st.selectbox(
+        "Favorita a valorar", [p["id"] for p in favoritas],
+        format_func=lambda pid: next(
+            f"{(p['titulo'] or 'Sin título')[:60]} — " + (eur(p["precio"]) if p["precio"] else "sin precio")
+            for p in favoritas if p["id"] == pid
+        ),
+        key="oferta_favorita_id",
     )
+    fav = next(p for p in favoritas if p["id"] == fav_id)
     faltan = oa.campos_faltantes(fav)
 
     if faltan["imprescindibles"]:
