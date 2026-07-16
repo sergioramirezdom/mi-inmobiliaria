@@ -102,6 +102,29 @@ llega a 4 comparables, se calcula igualmente con los que haya (mínimo 1) pero c
 aviso destacado de baja fiabilidad. Con 0 comparables, o si la favorita no tiene
 superficie o precio, no se valora y se explica el motivo exacto.
 
+### a-bis) Solicitud de datos que faltan
+
+Antes de valorar, se comprueban los campos de la favorita que afectan a la calidad
+de la valoración, en dos niveles:
+
+- **Imprescindibles** (sin ellos no hay valoración): `precio`, `superficie_m2`.
+- **Mejoran los comparables**: `barrio`, `tipo_propiedad`.
+
+Si falta alguno, la pestaña muestra un formulario inline (`st.form`) titulado
+"📝 Completa datos para afinar la valoración" con un input por campo ausente:
+`superficie_m2` (number_input), `precio` (number_input), `barrio` (selectbox con
+los barrios existentes vía `PropiedadCRUD.get_distinct_barrios` + opción de texto
+libre), `tipo_propiedad` (selectbox con los tipos distintos existentes). Al
+guardar, se persiste con `PropiedadCRUD.update`, se limpia la caché de datos de la
+página y se re-ejecuta (st.rerun), recalculando la valoración con los nuevos datos.
+
+- Si faltan imprescindibles: el formulario aparece EN LUGAR de la valoración, con
+  el motivo ("No se puede valorar sin superficie").
+- Si solo faltan los de mejora: la valoración se muestra igualmente (con el nivel
+  de comparables degradado que corresponda) y el formulario aparece plegado en un
+  expander debajo, indicando qué mejoraría ("Añadir el barrio afinaría los
+  comparables del nivel 4 al nivel 1").
+
 ### b) Valor estimado
 
 `valor_estimado = mediana(€/m² de comparables) × superficie de la favorita`
