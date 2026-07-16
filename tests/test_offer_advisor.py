@@ -10,6 +10,7 @@ from ui.offer_advisor import (
     NIVELES,
     calcular_ajustes,
     campos_faltantes,
+    decidir_vista,
     rango_oferta,
     seleccionar_comparables,
     valorar,
@@ -194,3 +195,18 @@ def test_rango_aplica_descuentos():
     assert r["descuento_total_pct"] == 5.0
     assert r["oferta_inicial"] == 142_500  # 150000 * 0.95
     assert r["maximo_razonable"] == 150_000
+
+
+# ── decidir_vista ─────────────────────────────────────────────────────
+
+def test_decidir_vista_form_imprescindibles():
+    sin_precio = _prop(id=200, precio=None)
+    assert decidir_vista(sin_precio, _universo_nivel1(4), NOW) == "form_imprescindibles"
+
+
+def test_decidir_vista_sin_comparables():
+    assert decidir_vista(FAV, [], NOW) == "sin_comparables"
+
+
+def test_decidir_vista_valoracion():
+    assert decidir_vista(FAV, _universo_nivel1(4), NOW) == "valoracion"

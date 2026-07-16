@@ -151,3 +151,15 @@ def rango_oferta(favorita: dict, valor_estimado: float, ajustes: list) -> dict:
         "maximo_razonable": round(maximo),
         "descuento_total_pct": round(descuento_total, 1),
     }
+
+
+def decidir_vista(favorita: dict, universo: list, now) -> str:
+    """Qué vista mostrar en la pestaña Ofertas: 'form_imprescindibles',
+    'sin_comparables' o 'valoracion'. Pura — sin Streamlit."""
+    faltan = campos_faltantes(favorita)
+    if faltan["imprescindibles"]:
+        return "form_imprescindibles"
+    comparables, _ = seleccionar_comparables(favorita, universo, now)
+    if not comparables:
+        return "sin_comparables"
+    return "valoracion"

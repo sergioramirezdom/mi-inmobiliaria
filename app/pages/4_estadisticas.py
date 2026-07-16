@@ -20,6 +20,8 @@ st.set_page_config(page_title="Mercado", page_icon="📊", layout="wide")
 
 TABS = {"pulso": "📈 Pulso", "zonas": "🗺️ Zonas", "ofertas": "🎯 Ofertas"}
 MAX_BARRIOS_GRAFICO = 8  # límite de la paleta categórica — nunca ciclar colores
+_MESES_ABREV = {1: "ene", 2: "feb", 3: "mar", 4: "abr", 5: "may", 6: "jun",
+               7: "jul", 8: "ago", 9: "sep", 10: "oct", 11: "nov", 12: "dic"}
 
 
 # ── Fetches cacheados (dicts planos, nunca ORM) ───────────────────────
@@ -81,7 +83,7 @@ def render_pulso(df, hist_df, now):
     with col_a:
         st.subheader("Entradas por semana")
         s = ms.serie_semanal_entradas(df, now)
-        etiquetas = s["semana"].dt.strftime("%d %b")
+        etiquetas = s["semana"].apply(lambda d: f"{d.day} {_MESES_ABREV[d.month]}")
         st.plotly_chart(
             bar_chart(etiquetas, s["nuevas"], "Nuevas",
                       hovertemplate="Semana del %{x}: %{y} nuevas<extra></extra>"),
@@ -219,17 +221,19 @@ def render_ofertas(props: list, now):
         key="oferta_favorita_id",
     )
     fav = next(p for p in favoritas if p["id"] == fav_id)
-    faltan = oa.campos_faltantes(fav)
 
-    if faltan["imprescindibles"]:
+    vista = oa.decidir_vista(fav, props, now)
+
+    if vista == "form_imprescindibles":
+        faltan = oa.campos_faltantes(fav)
         nombres = ", ".join(CAMPOS_LABEL[c] for c in faltan["imprescindibles"])
         st.warning(f"⚠️ No se puede valorar sin: {nombres}. Complétalos aquí:")
         st.markdown("#### 📝 Completa datos para afinar la valoración")
         form_completar_datos(fav, faltan["imprescindibles"] + faltan["mejora"], props, "impr")
         return
 
-    comparables, nivel = oa.seleccionar_comparables(fav, props, now)
-    if not comparables:
+    if vista == "sin_comparables":
+        faltan = oa.campos_faltantes(fav)
         st.error(
             "No hay ningún comparable con precio y superficie en tu base de datos "
             "(ni siquiera ampliando a todo el municipio). Añade más fuentes o espera a nuevos datos."
@@ -239,6 +243,8 @@ def render_ofertas(props: list, now):
                 form_completar_datos(fav, faltan["mejora"], props, "mejora")
         return
 
+    faltan = oa.campos_faltantes(fav)
+    comparables, nivel = oa.seleccionar_comparables(fav, props, now)
     val = oa.valorar(fav, comparables)
     ajustes = oa.calcular_ajustes(fav, comparables, now)
     rango = oa.rango_oferta(fav, val["valor_estimado"], ajustes)
