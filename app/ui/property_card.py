@@ -36,26 +36,26 @@ def _foto_html(p: dict) -> str:
 
 def card_html(p: dict) -> str:
     """HTML completo de una tarjeta a partir del dict de prop_to_dict."""
-    titulo = html_lib.escape(p["titulo"] or "Sin título")[:80]
+    titulo = html_lib.escape((p["titulo"] or "Sin título")[:80])
     if not p["activa"]:
         titulo = f"<s>{titulo}</s> 🚫 {html_lib.escape(p['estado'] or 'Vendida')}"
 
-    precio = fmt_eur(p["precio"]) if p["precio"] else "Precio N/D"
+    precio = fmt_eur(p["precio"]) if p["precio"] is not None else "Precio N/D"
     bajada = (
         f' <span style="color:#21a366;font-size:0.95rem;font-weight:600;">↓ −{fmt_eur(p["bajada"])}</span>'
         if p["bajada"] else ""
     )
     m2_line = (
         f'<div style="color:#6b7280;font-size:0.85rem;">{fmt_eur(p["precio_m2"])[:-2]} €/m²</div>'
-        if p["precio_m2"] else ""
+        if p["precio_m2"] is not None else ""
     )
 
     resumen = " · ".join(
         x for x in [
             html_lib.escape(p["tipo"]) if p["tipo"] else None,
-            f'{p["superficie"]:.0f} m²' if p["superficie"] else None,
-            f'{p["habitaciones"]} hab' if p["habitaciones"] else None,
-            f'{p["banos"]} baños' if p["banos"] else None,
+            f'{p["superficie"]:.0f} m²' if p["superficie"] is not None else None,
+            f'{p["habitaciones"]} hab' if p["habitaciones"] is not None else None,
+            f'{p["banos"]} baños' if p["banos"] is not None else None,
         ] if x
     )
     ubicacion = ", ".join(html_lib.escape(x) for x in [p["barrio"], p["municipio"]] if x)
@@ -110,7 +110,7 @@ def render_card(p: dict, on_write):
         if b[2].button("✏️", key=f"edit_{p['id']}", help="Editar"):
             with Session(engine) as session:
                 prop = session.get(Propiedad, p["id"])
-            edit_property_dialog(prop)
+            edit_property_dialog(prop, on_write=on_write)
         if b[3].button("🧮", key=f"calc_{p['id']}", help="Calculadora"):
             with Session(engine) as session:
                 prop = session.get(Propiedad, p["id"])

@@ -4,6 +4,8 @@ Código movido desde app/pages/2_propiedades.py sin cambios funcionales,
 salvo add_url_dialog, que ahora abre su propia sesión de BD.
 """
 
+import html as html_lib
+
 import streamlit as st
 from sqlmodel import Session, select
 
@@ -37,7 +39,7 @@ def get_or_create_fuente_manual(session) -> int:
 
 
 @st.dialog("➕ Añadir propiedad por URL", width="large")
-def add_url_dialog():
+def add_url_dialog(on_write=None):
     """Dialog to add a property by URL with auto-extraction."""
     import asyncio
     import hashlib
@@ -117,13 +119,15 @@ def add_url_dialog():
             st.session_state["add_url_extracted"] = {}
             st.session_state["add_url_value"] = ""
             st.success(f"✅ Propiedad guardada: {titulo_guardado}")
+            if on_write:
+                on_write()
             st.rerun()
         except Exception as e:
             st.error(f"Error al guardar: {e}")
 
 
 @st.dialog("✏️ Editar propiedad", width="large")
-def edit_property_dialog(prop):
+def edit_property_dialog(prop, on_write=None):
     """Modal de edición de propiedad."""
     st.caption(f"🔗 {prop.url_original[:80]}...")
 
@@ -265,6 +269,8 @@ def edit_property_dialog(prop):
                     precio_ibi=precio_ibi if precio_ibi > 0 else None,
                 )
             st.success("✅ Guardado")
+            if on_write:
+                on_write()
             st.rerun()
     with col_cancel:
         if st.button("Cancelar", use_container_width=True):
@@ -380,7 +386,7 @@ def fotos_dialog(prop):
 
     st.caption(f"Foto {idx + 1} de {total}")
     st.markdown(
-        f'<img src="{fotos[idx]}" style="width:100%;max-height:420px;object-fit:contain;">',
+        f'<img src="{html_lib.escape(fotos[idx], quote=True)}" style="width:100%;max-height:420px;object-fit:contain;">',
         unsafe_allow_html=True,
     )
 

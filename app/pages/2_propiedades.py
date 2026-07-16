@@ -120,7 +120,7 @@ try:
         st.title("🏘️ Propiedades")
     with col_add:
         if st.button("➕ Añadir URL", use_container_width=True):
-            add_url_dialog()
+            add_url_dialog(on_write=clear_prop_caches)
 
     # ── Pestañas de estado ────────────────────────────────────────────
     counts = fetch_counts()
