@@ -22,6 +22,7 @@ from ui.property_queries import (
     counts_from_rows,
     filter_conditions,
     prop_to_dict,
+    tab_conditions,
 )
 
 st.set_page_config(page_title="Propiedades", page_icon="🏘️", layout="wide")
@@ -131,6 +132,7 @@ try:
         key="tab",
         label_visibility="collapsed",
         on_change=reset_page,
+        required=True,
     ) or "nuevas"
 
     # ── Filtros ───────────────────────────────────────────────────────
@@ -227,8 +229,8 @@ try:
         st.subheader("🗑️ Descarte masivo")
         st.caption("Descarta todas las propiedades activas que coinciden con los filtros aplicados (todas las páginas).")
         with Session(engine) as session:
-            bulk_stmt = select(Propiedad.id).where(Propiedad.activa == True, Propiedad.descartada == False)
-            for cond in filter_conditions(filters):
+            bulk_stmt = select(Propiedad.id)
+            for cond in tab_conditions(tab) + filter_conditions(filters):
                 bulk_stmt = bulk_stmt.where(cond)
             bulk_ids = list(session.exec(bulk_stmt).all())
 
