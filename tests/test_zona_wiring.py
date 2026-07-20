@@ -142,3 +142,57 @@ def test_normalize_property_propaga_catalogo_invalido_sin_envolver():
                 "titulo": "Piso cualquiera",
                 "barrio": "El Pinar Alto",
             })
+
+
+@pytest.mark.asyncio
+async def test_run_scraper_no_trata_catalogo_invalido_como_error_por_propiedad():
+    """Un CatalogoInvalidoError durante normalize_property debe romper todo el
+    run_scraper (stats["error"] presente), no acumularse como errores por
+    propiedad mientras se sigue iterando el resto de la lista.
+
+    Mismo patrón de mocks que tests/test_runner.py (patch.object sobre
+    _get_scraper con un AsyncMock cuyo .scrape devuelve una lista de raw
+    dicts, y normalize_property como MagicMock síncrono).
+    """
+    from scraper.runner import ScraperRunner
+    from scraper.zona_normalizer import CatalogoInvalidoError
+
+    fuente = Fuente(
+        id=1,
+        nombre="Test Source",
+        url="https://ejemplo.com/props",
+        tipo_scraper="generic",
+        activa=True,
+        intervalo_horas=24,
+    )
+
+    mock_db_session = MagicMock()
+    runner = ScraperRunner(mock_db_session)
+
+    raw_data_list = [
+        {"url_original": "https://ejemplo.com/piso/1", "titulo": "Piso 1"},
+        {"url_original": "https://ejemplo.com/piso/2", "titulo": "Piso 2"},
+        {"url_original": "https://ejemplo.com/piso/3", "titulo": "Piso 3"},
+    ]
+
+    with patch.object(runner, "_get_scraper") as mock_get_scraper:
+        mock_scraper = AsyncMock()
+        mock_scraper.scrape.return_value = raw_data_list
+        # La primera propiedad dispara el catálogo roto; si el bug persiste,
+        # el bucle seguiría llamando a normalize_property para las 2 restantes.
+        mock_scraper.normalize_property = MagicMock(
+            side_effect=CatalogoInvalidoError("catalogo corrupto de prueba")
+        )
+        mock_get_scraper.return_value = mock_scraper
+
+        result = await runner.run_scraper(fuente)
+
+    # El fallo debe reportarse como fallo de scraper completo...
+    assert "error" in result
+    assert "catalogo corrupto" in result["error"]
+    # ...y NO como errores acumulados propiedad-a-propiedad.
+    assert result["errores"] == 0
+    assert result["nuevas"] == 0
+    # normalize_property solo se debe haber intentado una vez (la propiedad
+    # que rompe el catálogo), no las 3 de la lista.
+    assert mock_scraper.normalize_property.call_count == 1

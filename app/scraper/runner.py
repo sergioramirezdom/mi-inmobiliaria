@@ -18,6 +18,7 @@ from .exceptions import ScraperException, ValidationException
 from .generic import GenericScraper
 from .puerto_inmobiliaria import PuertoInmobiliariaScraper
 from .paginated_scraper import PaginatedScraper
+from .zona_normalizer import CatalogoInvalidoError
 
 
 class ScraperRunner:
@@ -102,6 +103,8 @@ class ScraperRunner:
                     self.logger.debug(f"✓ Saved: {propiedad.titulo} ({propiedad.hash_unico[:8]}...)")
                     stats["nuevas"] += 1
 
+                except CatalogoInvalidoError:
+                    raise
                 except Exception as e:
                     self.logger.warning(f"⚠️ Error processing property {idx}: {e}")
                     stats["errores"] += 1

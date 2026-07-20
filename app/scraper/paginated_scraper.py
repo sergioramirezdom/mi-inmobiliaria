@@ -21,6 +21,7 @@ from .puertopiso_scraper import PuertoPisoScraper
 from .alonsaga_scraper import AlonsagaScraper
 from .description_enricher import extract_barrio_from_text
 from .config import ScraperConfig
+from .zona_normalizer import CatalogoInvalidoError
 from db.models import Fuente, Propiedad, PrecioHistorico
 
 
@@ -307,6 +308,8 @@ class PaginatedScraper:
                         self.logger.debug(f"✓ Saved new property: {propiedad.titulo}")
                         stats["nuevas"] += 1
 
+                    except CatalogoInvalidoError:
+                        raise
                     except Exception as e:
                         self.logger.warning(f"Error processing property: {e}")
                         stats["errores"] += 1
