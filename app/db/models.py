@@ -76,6 +76,8 @@ class Propiedad(SQLModel, table=True):
     # Location
     direccion: Optional[str] = None
     barrio: Optional[str] = Field(default=None, index=True)
+    zona_normalizada: Optional[str] = Field(default=None, index=True)  # zona canónica del catálogo
+    zona_confianza: Optional[str] = None  # 'exacta' | 'via' | 'debil'
     distrito: Optional[str] = Field(default=None, index=True)
     municipio: Optional[str] = Field(default=None, index=True)
     provincia: Optional[str] = None
