@@ -12,7 +12,10 @@ Crevillet:
   alias:
     - crevillet
     - el crevillet
-  vias: []
+  vias:
+    - avenida de la libertad
+    - camino de los enamorados
+    - calle valdes
 
 Pinar Alto:
   alias:
@@ -25,4 +28,167 @@ Menesteo:
   alias:
     - menesteo
     - el menesteo
+  vias: []
+
+Centro:
+  alias:
+    - centro
+    - centro alto
+    - casco historico ribera del marisco
+    - casco historico zona alta
+    - ribera del marisco
+  vias: []
+
+Valdelagrana:
+  alias:
+    - valdelagrana
+  vias: []
+
+El Tejar:
+  alias:
+    - el tejar
+    - tejar
+  vias: []
+
+El Juncal - Vallealto:
+  alias:
+    - el juncal vallealto
+    - el juncal
+    - vallealto
+  vias: []
+
+Camino Viejo de Rota - El Almendral:
+  alias:
+    - camino viejo de rota
+    - camino viejo de rota el almendral
+    - el almendral
+  vias: []
+
+El Manantial:
+  alias:
+    - el manantial
+    - los altos del manantial
+  vias: []
+
+Avenida de la Diputación:
+  alias:
+    - avenida de la diputacion
+  vias: []
+
+Avenida de Sanlúcar:
+  alias:
+    - avenida de sanlucar
+    - carretera de sanlucar sudamerica
+    - ctra de sanlucar
+  vias: []
+
+Pago Alhaja:
+  alias:
+    - pago alhaja
+  vias: []
+
+El Molino:
+  alias:
+    - el molino
+    - molino viejo
+  vias: []
+
+Montes de Oca:
+  alias:
+    - montes de oca
+  vias: []
+
+La Caridad:
+  alias:
+    - la caridad
+  vias: []
+
+Los Frailes:
+  alias:
+    - los frailes
+  vias: []
+
+Bellabahía:
+  alias:
+    - bellabahia
+  vias: []
+
+Dos Palmeras:
+  alias:
+    - dos palmeras
+  vias: []
+
+Cantarranas:
+  alias:
+    - cantarranas
+  vias: []
+
+Cuatro Pinos - El Carmen:
+  alias:
+    - cuatro pinos el carmen
+  vias: []
+
+La Negra:
+  alias:
+    - la negra
+  vias: []
+
+Fuentebravía:
+  alias:
+    - fuentebravia
+  vias: []
+
+Puerto Alto:
+  alias:
+    - puerto alto
+  vias: []
+
+La Angelita:
+  alias:
+    - la angelita
+  vias: []
+
+Las Nieves:
+  alias:
+    - las nieves
+  vias: []
+
+Polígono Salinas de Poniente:
+  alias:
+    - poligono salinas de poniente
+  vias: []
+
+Rompeserones:
+  alias:
+    - rompeserones
+  vias: []
+
+El Águila:
+  alias:
+    - el aguila
+  vias: []
+
+Tomillar:
+  alias:
+    - tomillar
+  vias: []
+
+Vistahermosa:
+  alias:
+    - vistahermosa
+  vias: []
+
+Las Redes:
+  alias:
+    - las redes
+  vias: []
+
+Sericícola:
+  alias:
+    - sericicola
+  vias: []
+
+Barrio de Astilleros:
+  alias:
+    - barrio de astilleros
   vias: []
