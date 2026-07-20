@@ -28,6 +28,7 @@ FIELD_LABELS = {
     "habitaciones": "Habitaciones",
     "banos": "Baños",
     "barrio": "Barrio/Zona",
+    "zona_normalizada": "Zona canónica",
     "superficie_m2": "Superficie m²",
 }
 
@@ -62,6 +63,7 @@ try:
                     Propiedad.habitaciones == None,
                     Propiedad.banos == None,
                     Propiedad.barrio == None,
+                    Propiedad.zona_normalizada == None,
                     Propiedad.superficie_m2 == None,
                 ),
             )

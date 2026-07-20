@@ -9,6 +9,8 @@ import re
 import unicodedata
 from typing import Any, Dict, Optional, Tuple
 
+from scraper.zona_normalizer import normalizar as normalizar_zona
+
 
 # (suggested_value, human-readable reason shown in UI)
 Suggestion = Tuple[Any, str]
@@ -148,6 +150,21 @@ def extract_suggestions(prop) -> Dict[str, Suggestion]:
                 if len(zona) > 2 and zona.lower() not in stopwords:
                     suggestions["barrio"] = (zona, f"Detectado: «{m.group().strip()}»")
                     break
+
+    # ── Zona canónica ─────────────────────────────────────────────────────
+    # Solo se sugiere cuando la cascada NO dio confianza 'exacta': los match
+    # exactos los escribe el backfill sin intervención humana, así que
+    # pedir que se aprueben sería ruido.
+    if not prop.zona_normalizada:
+        match = normalizar_zona(
+            barrio=prop.barrio,
+            direccion=prop.direccion,
+            titulo=prop.titulo,
+            descripcion=prop.descripcion,
+            url=prop.url_original,
+        )
+        if match.zona:
+            suggestions["zona_normalizada"] = (match.zona, match.evidencia)
 
     return suggestions
 
