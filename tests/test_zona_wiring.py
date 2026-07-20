@@ -125,3 +125,20 @@ def test_normalize_property_deja_zona_none_si_no_hay_match():
     assert prop.barrio == "Chamberí"
     assert prop.zona_normalizada is None
     assert prop.zona_confianza is None
+
+
+def test_normalize_property_propaga_catalogo_invalido_sin_envolver():
+    """Un catálogo YAML corrupto debe romper el scrapeo, no degradarse en silencio.
+
+    CatalogoInvalidoError debe salir de normalize_property tal cual, sin ser
+    envuelta en ParsingException por el except Exception genérico.
+    """
+    from scraper.zona_normalizer import CatalogoInvalidoError
+
+    with patch("scraper.base.normalizar_zona", side_effect=CatalogoInvalidoError("catalogo corrupto de prueba")):
+        with pytest.raises(CatalogoInvalidoError):
+            _normalizar_raw({
+                "url_original": "https://ejemplo.com/piso/3",
+                "titulo": "Piso cualquiera",
+                "barrio": "El Pinar Alto",
+            })

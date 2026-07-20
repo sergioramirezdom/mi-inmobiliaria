@@ -24,7 +24,7 @@ from .exceptions import (
     TimeoutException,
     ValidationException,
 )
-from .zona_normalizer import normalizar as normalizar_zona
+from .zona_normalizer import CatalogoInvalidoError, normalizar as normalizar_zona
 
 logger = logging.getLogger(__name__)
 
@@ -243,6 +243,8 @@ class ScraperBase(ABC):
             return propiedad
 
         except ValidationException:
+            raise
+        except CatalogoInvalidoError:
             raise
         except Exception as e:
             raise ParsingException(f"Failed to normalize property: {e}")
