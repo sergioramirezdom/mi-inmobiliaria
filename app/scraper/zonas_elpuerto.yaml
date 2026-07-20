@@ -1,0 +1,28 @@
+# Catálogo de zonas canónicas de El Puerto de Santa María.
+#
+# La clave es el nombre canónico: se muestra tal cual en la UI, con acentos
+# y mayúsculas reales.
+#   alias: cómo aparece escrita la zona en los portales.
+#   vias:  calles/avenidas que pertenecen a la zona.
+#
+# alias y vias van SIEMPRE en minúsculas, sin acentos y sin puntuación
+# (es decir, ya pasados por limpiar()). Hay un test que lo verifica.
+
+Crevillet:
+  alias:
+    - crevillet
+    - el crevillet
+  vias: []
+
+Pinar Alto:
+  alias:
+    - pinar alto
+    - el pinar alto
+    - pinaralto
+  vias: []
+
+Menesteo:
+  alias:
+    - menesteo
+    - el menesteo
+  vias: []
