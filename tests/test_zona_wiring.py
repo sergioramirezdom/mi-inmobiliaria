@@ -73,3 +73,55 @@ async def test_punto_hogar_extracts_barrio_from_html():
         s = PuntoHogarScraper()
         result = await s.scrape_property_details("https://www.puntohogarinmobiliaria.com/venta/piso/el-puerto/123")
     assert result.get("barrio") == "El Buzo"
+
+
+from scraper.base import ScraperBase
+from scraper.config import ScraperConfig
+from db.models import Fuente
+
+
+class ScraperParaZonas(ScraperBase):
+    """Implementación concreta mínima de ScraperBase, solo para test.
+
+    Mismo patrón que ConcreteScraperForTesting en tests/test_scraper_base.py.
+    """
+
+    async def scrape(self, fuente: Fuente):
+        return []
+
+    def _parse_properties(self, content: str):
+        return []
+
+    def _extract_fields(self, element):
+        return {}
+
+
+def _normalizar_raw(raw_data: dict):
+    scraper = ScraperParaZonas(ScraperConfig(timeout=30, retries=3,
+                                             verify_ssl=True, auto_detect=True))
+    fuente = Fuente(id=1, nombre="Test", url="https://ejemplo.com",
+                    tipo_scraper="generic", activa=True, intervalo_horas=24)
+    return scraper.normalize_property(raw_data, fuente)
+
+
+def test_normalize_property_rellena_zona_normalizada():
+    """Una propiedad scrapeada sale con la zona canónica resuelta."""
+    prop = _normalizar_raw({
+        "url_original": "https://ejemplo.com/piso/1",
+        "titulo": "Piso luminoso",
+        "barrio": "El Pinar Alto",
+    })
+    assert prop.barrio == "El Pinar Alto"  # el crudo NO se toca
+    assert prop.zona_normalizada == "Pinar Alto"
+    assert prop.zona_confianza == "exacta"
+
+
+def test_normalize_property_deja_zona_none_si_no_hay_match():
+    prop = _normalizar_raw({
+        "url_original": "https://ejemplo.com/piso/2",
+        "titulo": "Piso en Madrid",
+        "barrio": "Chamberí",
+    })
+    assert prop.barrio == "Chamberí"
+    assert prop.zona_normalizada is None
+    assert prop.zona_confianza is None

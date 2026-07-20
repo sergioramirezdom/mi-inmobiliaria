@@ -24,6 +24,7 @@ from .exceptions import (
     TimeoutException,
     ValidationException,
 )
+from .zona_normalizer import normalizar as normalizar_zona
 
 logger = logging.getLogger(__name__)
 
@@ -185,6 +186,14 @@ class ScraperBase(ABC):
             habitaciones = self._parse_int(raw_data.get("habitaciones") or raw_data.get("rooms"), "habitaciones")
             banos = self._parse_int(raw_data.get("banos") or raw_data.get("bathrooms"), "banos")
 
+            zona_match = normalizar_zona(
+                barrio=raw_data.get("barrio"),
+                direccion=raw_data.get("direccion") or raw_data.get("address"),
+                titulo=raw_data.get("titulo") or raw_data.get("title"),
+                descripcion=raw_data.get("descripcion") or raw_data.get("description"),
+                url=raw_data.get("url_original") or raw_data.get("url"),
+            )
+
             # Create Propiedad instance
             propiedad = Propiedad(
                 hash_unico=hash_unico,
@@ -216,6 +225,8 @@ class ScraperBase(ABC):
                 certificado_energetico=raw_data.get("certificado_energetico"),
                 direccion=raw_data.get("direccion") or raw_data.get("address"),
                 barrio=raw_data.get("barrio"),
+                zona_normalizada=zona_match.zona,
+                zona_confianza=zona_match.confianza,
                 distrito=raw_data.get("distrito"),
                 municipio=raw_data.get("municipio"),
                 provincia=raw_data.get("provincia"),
