@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 from db.database import engine, PropiedadCRUD
 from db.models import FiltroAlerta, Propiedad
 from notifications.filter_matcher import FilterMatcher
+from scraper.zona_normalizer import cargar_catalogo
 
 st.set_page_config(page_title="Gestión de Alertas", page_icon="🔔", layout="wide")
 
@@ -102,7 +103,9 @@ def criteria_form(prefix: str, defaults: dict = None):
     barrio_default = [b.strip() for b in barrio_val.split(",") if b.strip()] if barrio_val else []
     barrio = st.multiselect(
         "Zona/Barrio (una o varias — coincide con cualquiera)",
-        options=sorted(set(barrios_existentes) | set(barrio_default)),
+        options=sorted(
+            set(cargar_catalogo()) | set(barrios_existentes) | set(barrio_default)
+        ),
         default=barrio_default,
         accept_new_options=True,
         key=f"{prefix}_barrio",

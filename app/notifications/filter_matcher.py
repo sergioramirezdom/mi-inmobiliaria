@@ -90,19 +90,29 @@ class FilterMatcher:
                 return False
             return propiedad.banos >= int(value)
 
-        # Zone/Neighborhood — matches if ANY of the given zones is a
-        # substring of the property's barrio (OR logic, unlike amenidades'
-        # AND logic below). value may be a comma-separated string (legacy
-        # single value or new multi-value) or a real list.
+        # Zone/Neighborhood — OR entre dos vías, para no romper filtros
+        # guardados antes de la normalización:
+        #   (a) coincidencia exacta con la zona canónica, o
+        #   (b) substring del barrio crudo (comportamiento histórico).
+        # Al ser OR solo puede añadir coincidencias, nunca quitarlas.
         if key == "barrio":
-            if propiedad.barrio is None:
-                return False
             if isinstance(value, str):
                 zonas = [z.strip().lower() for z in value.split(",") if z.strip()]
             else:
                 zonas = [str(z).strip().lower() for z in value if str(z).strip()]
-            prop_barrio = propiedad.barrio.lower()
-            return any(z in prop_barrio for z in zonas)
+            if not zonas:
+                return False
+
+            zona_canonica = (propiedad.zona_normalizada or "").lower()
+            if zona_canonica and zona_canonica in zonas:
+                return True
+
+            if propiedad.barrio:
+                prop_barrio = propiedad.barrio.lower()
+                if any(z in prop_barrio for z in zonas):
+                    return True
+
+            return False
 
         # Address (partial match)
         if key == "direccion":
