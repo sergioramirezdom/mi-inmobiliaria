@@ -6,6 +6,7 @@ poder testearse sin Postgres (igual que zona_utils).
 
 import re
 import unicodedata
+from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 from typing import Optional
@@ -101,3 +102,119 @@ def cargar_catalogo(ruta: Optional[str] = None) -> dict:
         catalogo[zona] = {"alias": alias, "vias": vias}
 
     return catalogo
+
+
+CONFIANZA_EXACTA = "exacta"
+CONFIANZA_VIA = "via"
+CONFIANZA_DEBIL = "debil"
+
+
+@dataclass(frozen=True)
+class ZonaMatch:
+    """Resultado de resolver una zona. `zona is None` significa sin match."""
+
+    zona: Optional[str] = None
+    confianza: Optional[str] = None
+    evidencia: str = ""
+
+
+SIN_ZONA_MATCH = ZonaMatch()
+
+
+def _contiene_termino(texto_limpio: str, termino: str) -> bool:
+    """True si `termino` aparece en `texto_limpio` como palabra completa.
+
+    Con límites de palabra, nunca substring: si no, 'pinar' casaría dentro
+    de 'espinar' y 'crevillet' dentro de 'crevilletazo'.
+    """
+    if not texto_limpio or not termino:
+        return False
+    return re.search(rf"\b{re.escape(termino)}\b", texto_limpio) is not None
+
+
+def _mejor_candidato(texto_limpio: str, catalogo: dict, campo: str) -> Optional[tuple]:
+    """Busca los términos de `campo` ('alias' o 'vias') en el texto.
+
+    Gana el término más largo, pero solo cuando los demás términos que han
+    casado son *solapamientos* suyos (subcadenas). Distinguir los dos casos
+    es la parte delicada:
+
+      - "piso en pinar alto" con alias 'pinar' y 'pinar alto' -> solapan,
+        gana 'pinar alto'. Es la misma mención del texto vista dos veces.
+      - "entre crevillet y pinar hondo" -> son dos menciones distintas de
+        dos zonas distintas. Ambiguo: se devuelve None en lugar de elegir
+        la más larga, que sería arbitrario.
+
+    Returns:
+        (zona, termino) o None.
+    """
+    if not texto_limpio:
+        return None
+
+    encontrados = [
+        (zona, termino)
+        for zona, datos in catalogo.items()
+        for termino in datos[campo]
+        if _contiene_termino(texto_limpio, termino)
+    ]
+    if not encontrados:
+        return None
+
+    zona_ganadora, ganador = max(encontrados, key=lambda par: len(par[1]))
+
+    for zona, termino in encontrados:
+        if zona != zona_ganadora and termino not in ganador:
+            return None  # otra zona casó por su cuenta: ambiguo
+
+    return (zona_ganadora, ganador)
+
+
+def normalizar(
+    barrio: Optional[str] = None,
+    direccion: Optional[str] = None,
+    titulo: Optional[str] = None,
+    descripcion: Optional[str] = None,
+    url: Optional[str] = None,
+    ruta_catalogo: Optional[str] = None,
+) -> ZonaMatch:
+    """Resuelve la zona canónica de una propiedad.
+
+    Cascada, parando en el primer acierto:
+      1. alias exacto sobre `barrio`            -> 'exacta'
+      2. vía conocida en `barrio` o `direccion` -> 'via'
+      3. alias o vía en `titulo`+`descripcion`+`url` -> 'debil'
+
+    Función pura: no consulta BD ni red.
+    """
+    catalogo = cargar_catalogo(ruta_catalogo)
+    if not catalogo:
+        return SIN_ZONA_MATCH
+
+    # ── Nivel 1: el barrio limpio ES un alias ─────────────────────────────
+    barrio_limpio = limpiar(barrio)
+    if barrio_limpio:
+        for zona, datos in catalogo.items():
+            if barrio_limpio in datos["alias"]:
+                return ZonaMatch(zona, CONFIANZA_EXACTA,
+                                 f"barrio «{barrio_limpio}» es alias de {zona}")
+
+    # ── Nivel 2: una vía conocida aparece en barrio o dirección ───────────
+    texto_ubicacion = " ".join(filter(None, [barrio_limpio, limpiar(direccion)]))
+    candidato = _mejor_candidato(texto_ubicacion, catalogo, "vias")
+    if candidato:
+        zona, termino = candidato
+        return ZonaMatch(zona, CONFIANZA_VIA,
+                         f"vía «{termino}» pertenece a {zona}")
+
+    # ── Nivel 3: texto libre ──────────────────────────────────────────────
+    texto_libre = " ".join(filter(None, [
+        limpiar(titulo), limpiar(descripcion), limpiar(url),
+    ]))
+    for campo in ("alias", "vias"):
+        candidato = _mejor_candidato(texto_libre, catalogo, campo)
+        if candidato:
+            zona, termino = candidato
+            return ZonaMatch(zona, CONFIANZA_DEBIL,
+                             f"«{termino}» encontrado en el texto de la ficha")
+
+    return SIN_ZONA_MATCH

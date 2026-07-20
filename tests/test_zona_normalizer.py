@@ -97,3 +97,122 @@ def test_cargar_catalogo_rechaza_alias_sin_limpiar(tmp_path):
     """)
     with pytest.raises(CatalogoInvalidoError, match="sin limpiar"):
         cargar_catalogo(ruta)
+
+
+from scraper.zona_normalizer import SIN_ZONA_MATCH, normalizar
+
+
+@pytest.fixture
+def catalogo(tmp_path):
+    """Catálogo de prueba pequeño. NO es el catálogo real."""
+    return escribir_catalogo(tmp_path, """
+        Pinar Alto:
+          alias: [pinar alto, el pinar alto]
+          vias:  [avenida del pinar]
+        Pinar Hondo:
+          alias: [pinar hondo]
+          vias:  []
+        Crevillet:
+          alias: [crevillet]
+          vias:  [avenida de sevilla]
+        Pinar Viejo:
+          alias: [pinar]
+          vias:  []
+    """)
+
+
+def test_nivel_1_alias_exacto_en_barrio(catalogo):
+    m = normalizar(barrio="El Pinar Alto", ruta_catalogo=catalogo)
+    assert m.zona == "Pinar Alto"
+    assert m.confianza == "exacta"
+
+
+def test_nivel_1_ignora_acentos_y_mayusculas(catalogo):
+    assert normalizar(barrio="CREVILLÉT", ruta_catalogo=catalogo).zona == "Crevillet"
+
+
+def test_nivel_2_via_en_barrio(catalogo):
+    m = normalizar(barrio="Avda. de Sevilla, 12", ruta_catalogo=catalogo)
+    assert m.zona == "Crevillet"
+    assert m.confianza == "via"
+
+
+def test_nivel_2_via_en_direccion(catalogo):
+    m = normalizar(barrio=None, direccion="Avenida del Pinar 3, 2ºB",
+                   ruta_catalogo=catalogo)
+    assert m.zona == "Pinar Alto"
+    assert m.confianza == "via"
+
+
+def test_nivel_3_alias_en_descripcion(catalogo):
+    m = normalizar(descripcion="Precioso piso en la zona de Crevillet, muy luminoso.",
+                   ruta_catalogo=catalogo)
+    assert m.zona == "Crevillet"
+    assert m.confianza == "debil"
+
+
+def test_nivel_3_alias_en_titulo(catalogo):
+    m = normalizar(titulo="Ático en Crevillet con vistas", ruta_catalogo=catalogo)
+    assert m.zona == "Crevillet"
+    assert m.confianza == "debil"
+
+
+def test_nivel_3_alias_en_url(catalogo):
+    m = normalizar(url="https://x.com/venta/piso/el-puerto/pinar-alto/1234",
+                   ruta_catalogo=catalogo)
+    assert m.zona == "Pinar Alto"
+    assert m.confianza == "debil"
+
+
+def test_barrio_gana_a_descripcion(catalogo):
+    """Nivel 1 corta la cascada: no se mira la descripción."""
+    m = normalizar(barrio="Crevillet", descripcion="cerca de Pinar Alto",
+                   ruta_catalogo=catalogo)
+    assert m.zona == "Crevillet"
+    assert m.confianza == "exacta"
+
+
+def test_alias_solapado_gana_el_mas_largo(catalogo):
+    """En texto libre, 'pinar alto' gana a 'pinar' (Pinar Viejo).
+
+    Son la misma mención vista dos veces, no dos zonas distintas.
+    """
+    m = normalizar(titulo="Piso en Pinar Alto", ruta_catalogo=catalogo)
+    assert m.zona == "Pinar Alto"
+    assert m.confianza == "debil"
+
+
+def test_sin_match_devuelve_zona_none(catalogo):
+    m = normalizar(barrio="Valdelagrana", ruta_catalogo=catalogo)
+    assert m == SIN_ZONA_MATCH
+    assert m.zona is None
+    assert m.confianza is None
+
+
+def test_todo_vacio_devuelve_sin_match(catalogo):
+    assert normalizar(ruta_catalogo=catalogo) == SIN_ZONA_MATCH
+
+
+def test_no_hay_fuzzy_pinar_hondo_no_es_pinar_alto(catalogo):
+    """El caso que justifica no usar distancia de edición."""
+    m = normalizar(barrio="Pinar Hondo", ruta_catalogo=catalogo)
+    assert m.zona == "Pinar Hondo"
+
+
+def test_no_casa_dentro_de_otra_palabra(catalogo):
+    """'crevillet' no debe casar dentro de 'crevilletazo'."""
+    m = normalizar(descripcion="el famoso crevilletazo de la zona",
+                   ruta_catalogo=catalogo)
+    assert m.zona is None
+
+
+def test_ambiguedad_en_descripcion_no_elige_al_azar(catalogo):
+    """Dos zonas mencionadas con la misma fuerza -> ninguna."""
+    m = normalizar(descripcion="entre Crevillet y Pinar Hondo",
+                   ruta_catalogo=catalogo)
+    assert m.zona is None
+
+
+def test_evidencia_explica_el_match(catalogo):
+    m = normalizar(barrio="Avda. de Sevilla, 12", ruta_catalogo=catalogo)
+    assert "avenida de sevilla" in m.evidencia
