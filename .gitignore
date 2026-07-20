@@ -86,3 +86,4 @@ Thumbs.db
 # Poetry
 poetry.lock
 .venv/
+docs/superpowers/zonas_actuales.csv
