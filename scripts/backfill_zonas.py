@@ -63,7 +63,7 @@ def main() -> None:
         print(f"  {confianza:<10}: {reparto[confianza]}")
 
     if args.apply:
-        print(f"\n✓ Escritas {escritas} propiedades (solo confianza 'exacta')")
+        print(f"\nEscritas {escritas} propiedades (solo confianza 'exacta')")
         print("  Las de confianza 'via' y 'debil' esperan en la página Revisión.")
     else:
         print("\nDRY-RUN: no se ha escrito nada. Usa --apply para confirmar.")
