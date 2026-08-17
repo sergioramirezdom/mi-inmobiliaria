@@ -96,7 +96,7 @@ def _write(p: dict, on_write, **fields):
 @st.fragment
 def render_card(p: dict, on_write):
     """Tarjeta completa: HTML + fila de acciones. Cada acción re-ejecuta solo este fragment."""
-    from ui.property_dialogs import calculadora_modal, edit_property_dialog, fotos_dialog
+    from ui.property_dialogs import calculadora_modal, edit_property_dialog, fotos_dialog, buscar_fotos_dialog
 
     with st.container(border=True):
         st.markdown(card_html(p), unsafe_allow_html=True)
@@ -121,6 +121,11 @@ def render_card(p: dict, on_write):
                 with Session(engine) as session:
                     prop = session.get(Propiedad, p["id"])
                 fotos_dialog(prop)
+        else:
+            if b[4].button("🔍", key=f"buscar_fotos_{p['id']}", help="Buscar fotos"):
+                with Session(engine) as session:
+                    prop = session.get(Propiedad, p["id"])
+                buscar_fotos_dialog(prop, on_write=on_write)
         b[5].link_button("🔗", p["url"], help="Abrir anuncio")
         if b[6].button("✓" if p["vista"] else "👁", key=f"view_{p['id']}", help="Marcar vista"):
             _write(p, on_write, vista=not p["vista"])

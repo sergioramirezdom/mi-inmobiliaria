@@ -9,6 +9,7 @@ from bs4 import BeautifulSoup
 from .exceptions import ParsingException
 from .config import ScraperConfig
 from .zona_utils import extract_from_url as _zona_from_url, extract_from_html as _zona_from_html
+from .foto_extractor import extraer_fotos
 import asyncio
 import httpx
 
@@ -101,6 +102,11 @@ class PuertoInmobiliariaScraper:
 
             if not enriched_data.get("barrio"):
                 enriched_data["barrio"] = _zona_from_url(property_url) or _zona_from_html(content, soup)
+
+            if not enriched_data.get("fotos"):
+                fotos = extraer_fotos(content, url=property_url)
+                if fotos:
+                    enriched_data["fotos"] = fotos
 
             self.logger.debug(f"✓ Extracted details: {list(enriched_data.keys())}")
             return enriched_data

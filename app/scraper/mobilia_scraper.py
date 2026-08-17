@@ -9,6 +9,7 @@ from bs4 import BeautifulSoup
 from .exceptions import ParsingException
 from .config import ScraperConfig
 from .zona_utils import extract_from_url as _zona_from_url, extract_from_html as _zona_from_html
+from .foto_extractor import extraer_fotos
 import httpx
 
 
@@ -141,6 +142,11 @@ class MobiliaScraper:
                 data["barrio"] = _zona_from_url(property_url) or _zona_from_html(content, soup)
 
             self.logger.debug(f"Extracted: {list(data.keys())}")
+            if not data.get("fotos"):
+                fotos = extraer_fotos(content, url=property_url)
+                if fotos:
+                    data["fotos"] = fotos
+
             return data
 
         except Exception as e:

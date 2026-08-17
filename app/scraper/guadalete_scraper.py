@@ -13,6 +13,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from .config import ScraperConfig
 from .zona_utils import extract_from_url as _zona_from_url, extract_from_html as _zona_from_html
 
+from .foto_extractor import extraer_fotos
+
 logger = logging.getLogger(__name__)
 
 BASE_URL = "https://www.inmobiliariaguadalete.com"
@@ -127,6 +129,11 @@ class GuadaleteScraper:
 
         if not data.get("barrio"):
             data["barrio"] = _zona_from_url(url) or _zona_from_html(page_text, soup)
+
+        if not data.get("fotos"):
+            fotos = extraer_fotos(html, url=url)
+            if fotos:
+                data["fotos"] = fotos
 
         return data
 

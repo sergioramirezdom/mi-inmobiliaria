@@ -397,3 +397,63 @@ def fotos_dialog(prop):
     with col_next:
         if st.button("Siguiente →", key=f"foto_next_{prop.id}", use_container_width=True):
             st.session_state[key] = (idx + 1) % total
+
+
+@st.dialog("🔍 Buscar fotos", width="large")
+def buscar_fotos_dialog(prop, on_write=None):
+    """Descarga la ficha, extrae imágenes y deja elegir cuáles guardar.
+
+    Se previsualiza antes de guardar porque el extractor es genérico: en
+    portales que sirven las fotos del anuncio y las del widget de
+    'propiedades similares' desde la misma carpeta, no puede distinguirlas.
+    """
+    import asyncio
+
+    from scraper.foto_extractor import obtener_fotos
+
+    with st.spinner("Descargando la ficha…"):
+        resultado = asyncio.run(obtener_fotos(prop.url_original))
+
+    if "error" in resultado:
+        st.error(f"No se pudo acceder a la ficha: {resultado['error']}")
+        return
+
+    fotos = resultado.get("fotos") or []
+    if not fotos:
+        st.warning("No se encontraron imágenes en esta ficha.")
+        return
+
+    if len(fotos) < 5:
+        st.warning(
+            f"Solo se han encontrado {len(fotos)} imágenes. "
+            "Puede que este portal las cargue por JavaScript."
+        )
+
+    st.caption(f"{len(fotos)} imágenes encontradas. Desmarca las que no correspondan.")
+
+    seleccion = []
+    columnas = st.columns(4)
+    for idx, foto in enumerate(fotos):
+        with columnas[idx % 4]:
+            st.markdown(
+                f'<img src="{html_lib.escape(foto, quote=True)}" '
+                f'style="width:100%;height:110px;object-fit:cover;border-radius:4px;">',
+                unsafe_allow_html=True,
+            )
+            if st.checkbox("Usar", value=True, key=f"foto_sel_{prop.id}_{idx}"):
+                seleccion.append(foto)
+
+    st.divider()
+    if st.button(
+        f"💾 Guardar {len(seleccion)} fotos",
+        type="primary",
+        use_container_width=True,
+        disabled=not seleccion,
+        key=f"foto_save_{prop.id}",
+    ):
+        with Session(engine) as session:
+            PropiedadCRUD.update(session, prop.id, fotos=seleccion)
+        st.success(f"✅ Guardadas {len(seleccion)} fotos")
+        if on_write:
+            on_write()
+        st.rerun()

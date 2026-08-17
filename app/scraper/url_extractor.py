@@ -11,6 +11,8 @@ from .zona_utils import (
     extract_from_html as _zona_from_html,
 )
 
+from .foto_extractor import extraer_fotos
+
 logger = logging.getLogger(__name__)
 
 BROWSER_HEADERS = {
@@ -122,6 +124,10 @@ def _parse_html(html: str, url: str = "") -> dict:
             (_zona_from_url(url) if url else None)
             or _zona_from_html(page_text, soup)
         )
+
+    fotos = extraer_fotos(html, url=url)
+    if fotos:
+        data["fotos"] = fotos
 
     return data
 
