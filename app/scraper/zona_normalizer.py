@@ -198,6 +198,16 @@ def normalizar(
                 return ZonaMatch(zona, CONFIANZA_EXACTA,
                                  f"barrio «{barrio_limpio}» es alias de {zona}")
 
+    # ── Nivel 1.5: el barrio contiene un alias como palabra completa ─────
+    # Cubre barrios con formato "ZONA / Municipio" (ej. "CENTRO / El Puerto
+    # de Santa Maria") donde el alias está contenido pero no es igual.
+    if barrio_limpio:
+        candidato = _mejor_candidato(barrio_limpio, catalogo, "alias")
+        if candidato:
+            zona, termino = candidato
+            return ZonaMatch(zona, CONFIANZA_EXACTA,
+                             f"barrio «{barrio_limpio}» contiene alias «{termino}» de {zona}")
+
     # ── Nivel 2: una vía conocida aparece en barrio o dirección ───────────
     texto_ubicacion = " ".join(filter(None, [barrio_limpio, limpiar(direccion)]))
     candidato = _mejor_candidato(texto_ubicacion, catalogo, "vias")

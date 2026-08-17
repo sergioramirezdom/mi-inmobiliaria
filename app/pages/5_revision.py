@@ -64,6 +64,8 @@ try:
                     Propiedad.banos == None,
                     Propiedad.barrio == None,
                     Propiedad.zona_normalizada == None,
+                    Propiedad.zona_confianza == "debil",
+                    Propiedad.zona_confianza == "via",
                     Propiedad.superficie_m2 == None,
                 ),
             )

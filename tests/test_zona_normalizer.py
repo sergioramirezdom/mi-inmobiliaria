@@ -216,3 +216,22 @@ def test_ambiguedad_en_descripcion_no_elige_al_azar(catalogo):
 def test_evidencia_explica_el_match(catalogo):
     m = normalizar(barrio="Avda. de Sevilla, 12", ruta_catalogo=catalogo)
     assert "avenida de sevilla" in m.evidencia
+
+
+def test_nivel_1_5_alias_contenido_en_barrio():
+    """Barrio con formato 'ZONA / Municipio' matchea por containment."""
+    m = normalizar(barrio="CENTRO / El Puerto de Santa Maria")
+    assert m.zona == "Centro"
+    assert m.confianza == "exacta"
+
+
+def test_nivel_1_5_alias_contenido_con_acentos():
+    m = normalizar(barrio="CREVILLET / El Puerto de Santa Maria")
+    assert m.zona == "Crevillet"
+    assert m.confianza == "exacta"
+
+
+def test_nivel_1_5_ambiguedad_devuelve_none():
+    """Barrio con multiples aliases de zonas distintas -> ambiguo."""
+    m = normalizar(barrio="Pinar Alto Crevillet Menesteo")
+    assert m.zona is None

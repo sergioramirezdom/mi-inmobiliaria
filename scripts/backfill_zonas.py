@@ -23,7 +23,7 @@ from sqlmodel import Session, select
 
 from db.database import engine
 from db.models import Propiedad
-from scraper.zona_normalizer import CONFIANZA_EXACTA, normalizar
+from scraper.zona_normalizer import CONFIANZA_EXACTA, CONFIANZA_VIA, CONFIANZA_DEBIL, normalizar
 
 
 def main() -> None:
@@ -49,7 +49,7 @@ def main() -> None:
             )
             reparto[m.confianza or "sin match"] += 1
 
-            if args.apply and m.confianza == CONFIANZA_EXACTA:
+            if args.apply and m.confianza in (CONFIANZA_EXACTA, CONFIANZA_VIA, CONFIANZA_DEBIL):
                 p.zona_normalizada = m.zona
                 p.zona_confianza = m.confianza
                 session.add(p)
@@ -63,8 +63,8 @@ def main() -> None:
         print(f"  {confianza:<10}: {reparto[confianza]}")
 
     if args.apply:
-        print(f"\nEscritas {escritas} propiedades (solo confianza 'exacta')")
-        print("  Las de confianza 'via' y 'debil' esperan en la página Revisión.")
+        print(f"\nEscritas {escritas} propiedades (todas las confianzas)")
+        print("  Todas las zonas resueltas han sido escritas.")
     else:
         print("\nDRY-RUN: no se ha escrito nada. Usa --apply para confirmar.")
 

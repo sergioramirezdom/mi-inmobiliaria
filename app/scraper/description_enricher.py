@@ -152,10 +152,11 @@ def extract_suggestions(prop) -> Dict[str, Suggestion]:
                     break
 
     # ── Zona canónica ─────────────────────────────────────────────────────
-    # Solo se sugiere cuando la cascada NO dio confianza 'exacta': los match
-    # exactos los escribe el backfill sin intervención humana, así que
-    # pedir que se aprueben sería ruido.
-    if not prop.zona_normalizada:
+    # Se sugiere revisión cuando la confianza NO es 'exacta':
+    # - zona_normalizada IS NULL: nunca se resolvió
+    # - zona_confianza = 'via' o 'debil': resolución incierta, el usuario
+    #   debe confirmar o corregir antes de usar en filtros y estadísticas.
+    if prop.zona_confianza != "exacta":
         match = normalizar_zona(
             barrio=prop.barrio,
             direccion=prop.direccion,
