@@ -156,6 +156,11 @@ def edit_property_dialog(prop, on_write=None):
         descripcion = st.text_area("Descripción", value=prop.descripcion or "", height=120)
 
     with tab_location:
+        from scraper.zona_normalizer import cargar_catalogo
+        catalogo = cargar_catalogo()
+        zonas_canonicas = sorted(catalogo.keys())
+        opciones_zona = ["(Sin zona)"] + zonas_canonicas
+
         col1, col2 = st.columns(2)
         with col1:
             direccion = st.text_input("Dirección", value=prop.direccion or "")
@@ -165,6 +170,18 @@ def edit_property_dialog(prop, on_write=None):
             codigo_postal = st.text_input("Código postal", value=prop.codigo_postal or "")
             distrito = st.text_input("Distrito", value=prop.distrito or "")
             provincia = st.text_input("Provincia", value=prop.provincia or "")
+
+        # Zona canónica como desplegable
+        zona_actual = prop.zona_normalizada or "(Sin zona)"
+        zona_idx = opciones_zona.index(zona_actual) if zona_actual in opciones_zona else 0
+        zona_normalizada = st.selectbox(
+            "🏷️ Zona canónica",
+            options=opciones_zona,
+            index=zona_idx,
+            help="Zona normalizada del catálogo. Se usa en estadísticas y filtros de alertas.",
+        )
+        if zona_normalizada == "(Sin zona)":
+            zona_normalizada = None
 
     with tab_features:
         col1, col2, col3 = st.columns(3)
@@ -249,6 +266,7 @@ def edit_property_dialog(prop, on_write=None):
                     descripcion=descripcion or None,
                     direccion=direccion or None,
                     barrio=barrio or None,
+                    zona_normalizada=zona_normalizada,
                     distrito=distrito or None,
                     municipio=municipio or None,
                     provincia=provincia or None,
