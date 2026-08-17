@@ -228,13 +228,21 @@ class PaginatedScraper:
                                 if days_old >= 3:
                                     try:
                                         details = await self.detail_scraper.scrape_property_details(url_original)
-                                        if not details.get("activa", True):
+                                        # Case 1: scraper explicitly says inactive
+                                        is_inactive = ("activa" in details and not details["activa"])
+                                        # Case 2: no activa field AND no key data — bad/redirected page
+                                        is_empty = (
+                                            "activa" not in details
+                                            and not details.get("titulo")
+                                            and not details.get("precio")
+                                        )
+                                        if is_inactive or is_empty:
                                             existing.activa = False
-                                            existing.estado = details.get("estado", "Vendida")
+                                            existing.estado = details.get("estado", "No disponible")
                                             existing.fecha_baja = datetime.utcnow()
                                             self.db_session.add(existing)
                                             self.db_session.commit()
-                                            self.logger.info(f"🚫 Marcada como vendida: {existing.titulo}")
+                                            self.logger.info(f"🚫 Marcada como no disponible: {existing.titulo}")
                                             stats["vendidas"] = stats.get("vendidas", 0) + 1
                                         else:
                                             # Check for price change

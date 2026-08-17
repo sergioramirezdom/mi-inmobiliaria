@@ -71,7 +71,9 @@ async def check_sold_properties(session: Session, limit: Optional[int] = None) -
             scraper = _get_scraper(config.detail_scraper_type, config)
             details = await scraper.scrape_property_details(prop.url_original)
 
-            if not details.get("activa", True):
+            # Determine if property is still active
+            # Case 1: scraper explicitly says inactive
+            if "activa" in details and not details["activa"]:
                 estado = details.get("estado", "Vendida")
                 prop.activa = False
                 prop.estado = estado
@@ -85,6 +87,24 @@ async def check_sold_properties(session: Session, limit: Optional[int] = None) -
                     "url": prop.url_original,
                     "precio": prop.precio,
                     "estado": estado,
+                })
+            # Case 2: scraper returned data but no key fields — likely a bad/redirected page
+            elif "activa" not in details and not details.get("titulo") and not details.get("precio"):
+                logger.warning(
+                    f"[{i}/{stats['total']}] ⚠️ Scraper sin datos válidos para "
+                    f"{prop.url_original[:60]} — marcando como no disponible"
+                )
+                prop.activa = False
+                prop.estado = "No disponible"
+                prop.fecha_baja = datetime.utcnow()
+                session.add(prop)
+                session.commit()
+                stats["vendidas"] += 1
+                stats["vendidas_lista"].append({
+                    "titulo": prop.titulo,
+                    "url": prop.url_original,
+                    "precio": prop.precio,
+                    "estado": "No disponible",
                 })
             else:
                 logger.debug(f"[{i}/{stats['total']}] ✅ Activa: {prop.titulo[:60]}")

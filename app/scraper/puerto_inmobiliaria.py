@@ -22,8 +22,24 @@ class PuertoInmobiliariaScraper:
         self.config = config or ScraperConfig()
         self.logger = logging.getLogger(__name__)
 
-    async def fetch_content(self, url: str) -> str:
-        """Fetch HTML content from URL."""
+    # Marcadores de página genérica (no es una ficha de propiedad)
+    _FICHA_SELECTORS = [
+        ("div", "fichapropiedad-precio"),
+        ("div", "visorficha-bg-estadogestionadas"),
+        ("section", "fichapropiedad-bloquedescripcion"),
+        ("div", "paginacion-ficha-masdatos"),
+    ]
+
+    async def fetch_content(self, url: str) -> tuple[str, str]:
+        """Fetch HTML content from URL.
+
+        Returns:
+            Tuple of (html_content, final_url) where final_url is the URL
+            after any redirects.
+
+        Raises:
+            ParsingException: If fetch fails
+        """
         if not url:
             raise ParsingException("URL cannot be empty")
 
@@ -34,10 +50,11 @@ class PuertoInmobiliariaScraper:
                 verify=self.config.verify_ssl,
                 headers=self.config.headers or {}
             ) as client:
-                response = await client.get(url)
+                response = await client.get(url, follow_redirects=True)
                 response.raise_for_status()
-                self.logger.info(f"✓ Fetched {len(response.text)} bytes")
-                return response.text
+                final_url = str(response.url)
+                self.logger.info(f"✓ Fetched {len(response.text)} bytes (final: {final_url[:60]})")
+                return response.text, final_url
         except Exception as e:
             raise ParsingException(f"Failed to fetch {url}: {e}")
 
@@ -56,8 +73,37 @@ class PuertoInmobiliariaScraper:
         """
         try:
             # Fetch the detail page
-            content = await self.fetch_content(property_url)
+            content, final_url = await self.fetch_content(property_url)
+
+            # --- Detect redirect a homepage / página inexistente ---
+            # Puerto Inmobiliaria redirige a la homepage cuando la ficha no existe
+            # (devuelve 200 en lugar de 404)
+            parsed_final = final_url.rstrip("/").lower()
+            homepage_variants = [
+                "https://www.puertoinmobiliaria.es",
+                "http://www.puertoinmobiliaria.es",
+                "https://puertoinmobiliaria.es",
+            ]
+            if parsed_final in homepage_variants:
+                self.logger.info(
+                    f"⚠️ Redirect a homepage detectado para {property_url} "
+                    f"— ficha eliminada, marcando como inactiva"
+                )
+                return {"activa": False, "estado": "No disponible", "url_original": property_url}
+
             soup = BeautifulSoup(content, "html.parser")
+
+            # --- Detectar página sin elementos de ficha ---
+            # Si no hay ningún selector de ficha, es una página genérica
+            tiene_ficha = any(
+                soup.find(tag, class_=cls) for tag, cls in self._FICHA_SELECTORS
+            )
+            if not tiene_ficha:
+                self.logger.info(
+                    f"⚠️ Página sin elementos de ficha para {property_url} "
+                    f"— posible ficha eliminada, marcando como inactiva"
+                )
+                return {"activa": False, "estado": "No disponible", "url_original": property_url}
 
             enriched_data = {}
 
