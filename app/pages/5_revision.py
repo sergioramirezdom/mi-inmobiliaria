@@ -73,6 +73,10 @@ try:
             .limit(300)
         ).all()
 
+    # Filter out ignored properties (session_state)
+    ignored_ids = st.session_state.get("revision_ignored_ids", set())
+    propiedades = [p for p in propiedades if p.id not in ignored_ids]
+
     # Extract suggestions (outside the session context)
     pending = [(p, extract_suggestions(p)) for p in propiedades]
     pending = [(p, s) for p, s in pending if s]
@@ -110,6 +114,8 @@ try:
                 for prop, suggestions in pending:
                     updates = {f: v for f, (v, _) in suggestions.items()}
                     if updates:
+                        if "zona_normalizada" in updates:
+                            updates["zona_confianza"] = "exacta"
                         PropiedadCRUD.update(bulk_session, prop.id, **updates)
                         applied += 1
             st.success(f"✅ {applied} propiedades actualizadas")
@@ -172,6 +178,10 @@ try:
                 ):
                     updates = {f: v for f, (chk, v) in accepted.items() if chk}
                     if updates:
+                        # Si se guarda zona_normalizada, marcar confianza como exacta
+                        # para que no reaparezca en revisión
+                        if "zona_normalizada" in updates:
+                            updates["zona_confianza"] = "exacta"
                         with Session(engine) as upd_session:
                             PropiedadCRUD.update(upd_session, prop.id, **updates)
                         labels = [FIELD_LABELS.get(f, f) for f in updates]
@@ -185,8 +195,9 @@ try:
                     key=f"skip_{prop.id}",
                     use_container_width=True,
                 ):
-                    # Mark descripcion as reviewed by setting a flag — simplest way:
-                    # just rerun (no persistent skip, property will reappear only if still incomplete)
+                    if "revision_ignored_ids" not in st.session_state:
+                        st.session_state["revision_ignored_ids"] = set()
+                    st.session_state["revision_ignored_ids"].add(prop.id)
                     st.rerun()
 
 except Exception as e:
