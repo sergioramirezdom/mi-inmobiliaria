@@ -32,6 +32,7 @@ _EXT_BUENAS = (".jpg", ".jpeg", ".png", ".webp")
 _RUTA_MALA = (
     "logo", "banner", "icon", "avatar", "sprite",
     "placeholder", "thumb", "small", "blank",
+    "bandera", "header", "footer", "nav", "menu",
 )
 
 # Por debajo de esto es iconografía. Solo se aplica cuando el <img> declara
@@ -103,6 +104,12 @@ def _recolectar_candidatas(soup, url: str) -> List[str]:
                 if cand and not cand.startswith("data:"):
                     candidatas.append(urljoin(url, cand))
 
+    # Puerto Inmobiliaria uses a custom "cargafoto" attribute for lazy-loaded property images
+    for tag in soup.find_all(attrs={"cargafoto": True}):
+        valor = tag.get("cargafoto", "")
+        if valor and not valor.startswith("data:"):
+            candidatas.append(urljoin(url, valor.strip()))
+
     for a in soup.find_all("a", href=True):
         href = a["href"].strip()
         if href and not href.startswith("data:"):
@@ -144,7 +151,29 @@ def extraer_fotos(html: str, url: str = "") -> List[str]:
         grupos: dict = {}
         for u in limpias:
             grupos.setdefault(_carpeta(u), []).append(u)
-        return max(grupos.values(), key=len)
+        best_group = max(grupos.values(), key=len)
+
+        # Prefer full-size versions: "3-2s.jpg" → "3-2.jpg"
+        # CDN pattern: thumbnails have "s" before extension (e.g. 3-2s.jpg).
+        resolved = []
+        seen_paths = set()
+        for u in best_group:
+            p = urlparse(u)
+            path = p.path
+            # Convert thumbnail to full-size: remove trailing "s" before extension
+            if re.match(r".*s\.\w+$", path):
+                full_path = re.sub(r"s(\.\w+)$", r"\1", path)
+                full_url = urlunparse((p.scheme, p.netloc, full_path, "", "", ""))
+            else:
+                full_url = urlunparse((p.scheme, p.netloc, path, "", "", ""))
+
+            # Deduplicate by final path
+            final_path = urlparse(full_url).path
+            if final_path not in seen_paths:
+                seen_paths.add(final_path)
+                resolved.append(full_url)
+
+        return resolved
 
     og = soup.find("meta", attrs={"property": "og:image"})
     if og and og.get("content"):
