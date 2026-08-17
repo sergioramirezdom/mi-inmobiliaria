@@ -12,6 +12,7 @@ from bs4 import BeautifulSoup
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from .config import ScraperConfig
 from .zona_utils import extract_from_url as _zona_from_url, extract_from_html as _zona_from_html
+from .operacion_detector import detectar_operacion, es_garaje
 
 logger = logging.getLogger(__name__)
 
@@ -69,20 +70,24 @@ class AlonsagaScraper:
         if h1:
             data["titulo"] = h1.get_text(strip=True)
 
-        if _is_alquiler(data.get("titulo")):
-            data["activa"] = False
-            data["estado"] = "Alquiler"
-            return data
-
         # Price: format "180.000 €" or "180.000€"
         price_match = re.search(r"([\d.]+(?:,\d+)?)\s*€", page_text)
         if price_match:
             data["precio"] = _parse_price_eu(price_match.group(1))
 
-        if _is_alquiler(precio=data.get("precio")):
-            data["activa"] = False
-            data["estado"] = "Alquiler"
-            return data
+        # Detect operation type and garaje (common function)
+        operacion = detectar_operacion(
+            titulo=data.get("titulo"), precio=data.get("precio"), url=url,
+            descripcion=data.get("descripcion"),
+        )
+        if operacion:
+            data["tipo_operacion"] = operacion
+            if operacion == "alquiler":
+                data["activa"] = False
+                data["estado"] = "Alquiler"
+                return data
+        if es_garaje(titulo=data.get("titulo"), tipo_propiedad=data.get("tipo_propiedad"), url=url):
+            data["tipo_propiedad"] = "garaje"
 
         # Superficie: icon badge inside #inmueble2_caracteristicas
         superficie = _extract_superficie_m2(soup)

@@ -10,6 +10,7 @@ from .exceptions import ParsingException
 from .config import ScraperConfig
 from .zona_utils import extract_from_url as _zona_from_url, extract_from_html as _zona_from_html
 from .foto_extractor import extraer_fotos
+from .operacion_detector import detectar_operacion, es_garaje
 import httpx
 
 
@@ -146,6 +147,24 @@ class MobiliaScraper:
                 fotos = extraer_fotos(content, url=property_url)
                 if fotos:
                     data["fotos"] = fotos
+
+            # Detect operation type and garaje
+            operacion = detectar_operacion(
+                titulo=data.get("titulo"), precio=data.get("precio"),
+                url=property_url, descripcion=data.get("descripcion"),
+            )
+            if operacion:
+                data["tipo_operacion"] = operacion
+                if operacion == "alquiler":
+                    data["activa"] = False
+                    data["estado"] = "Alquiler"
+                    return data
+            if es_garaje(
+                titulo=data.get("titulo"),
+                tipo_propiedad=data.get("tipo_propiedad"),
+                url=property_url,
+            ):
+                data["tipo_propiedad"] = "garaje"
 
             return data
 

@@ -204,6 +204,7 @@ class ScraperBase(ABC):
                 precio=precio,
                 precio_anterior=self._parse_float(raw_data.get("precio_anterior"), "precio_anterior"),
                 tipo_propiedad=raw_data.get("tipo_propiedad") or raw_data.get("property_type"),
+                tipo_operacion=raw_data.get("tipo_operacion"),
                 superficie_m2=superficie_m2,
                 habitaciones=habitaciones,
                 banos=banos,

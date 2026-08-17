@@ -184,6 +184,20 @@ class JimenezRuizScraper:
         if not data.get("barrio"):
             data["barrio"] = _zona_from_url(url) or _zona_from_html(page_text, soup)
 
+        # Detect operation type and garaje
+        operacion = detectar_operacion(
+            titulo=data.get("titulo"), precio=data.get("precio"), url=url,
+            descripcion=data.get("descripcion"),
+        )
+        if operacion:
+            data["tipo_operacion"] = operacion
+            if operacion == "alquiler":
+                data["activa"] = False
+                data["estado"] = "Alquiler"
+                return data
+        if es_garaje(titulo=data.get("titulo"), tipo_propiedad=data.get("tipo_propiedad"), url=url):
+            data["tipo_propiedad"] = "garaje"
+
         return data
 
 

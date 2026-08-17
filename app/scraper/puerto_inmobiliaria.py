@@ -10,6 +10,7 @@ from .exceptions import ParsingException
 from .config import ScraperConfig
 from .zona_utils import extract_from_url as _zona_from_url, extract_from_html as _zona_from_html
 from .foto_extractor import extraer_fotos
+from .operacion_detector import detectar_operacion, es_garaje
 import asyncio
 import httpx
 
@@ -153,6 +154,24 @@ class PuertoInmobiliariaScraper:
                 fotos = extraer_fotos(content, url=property_url)
                 if fotos:
                     enriched_data["fotos"] = fotos
+
+            # Detect operation type and garaje
+            operacion = detectar_operacion(
+                titulo=enriched_data.get("titulo"), precio=enriched_data.get("precio"),
+                url=property_url, descripcion=enriched_data.get("descripcion"),
+            )
+            if operacion:
+                enriched_data["tipo_operacion"] = operacion
+                if operacion == "alquiler":
+                    enriched_data["activa"] = False
+                    enriched_data["estado"] = "Alquiler"
+                    return enriched_data
+            if es_garaje(
+                titulo=enriched_data.get("titulo"),
+                tipo_propiedad=enriched_data.get("tipo_propiedad"),
+                url=property_url,
+            ):
+                enriched_data["tipo_propiedad"] = "garaje"
 
             self.logger.debug(f"✓ Extracted details: {list(enriched_data.keys())}")
             return enriched_data

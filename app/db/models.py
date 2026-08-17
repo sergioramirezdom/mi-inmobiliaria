@@ -45,7 +45,8 @@ class Propiedad(SQLModel, table=True):
     precio_anterior: Optional[float] = None  # Previous price (before reduction)
     precio_comunidad: Optional[float] = None
     precio_ibi: Optional[float] = None
-    tipo_propiedad: Optional[str] = Field(default=None, index=True)  # piso | casa | ático | bajo | dúplex | estudio | local
+    tipo_propiedad: Optional[str] = Field(default=None, index=True)  # piso | casa | ático | bajo | dúplex | estudio | local | garaje
+    tipo_operacion: Optional[str] = Field(default=None, index=True)  # venta | alquiler
 
     # Surface and rooms
     superficie_m2: Optional[float] = Field(default=None, index=True)

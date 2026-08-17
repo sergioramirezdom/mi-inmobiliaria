@@ -14,6 +14,7 @@ from .config import ScraperConfig
 from .zona_utils import extract_from_url as _zona_from_url, extract_from_html as _zona_from_html
 
 from .foto_extractor import extraer_fotos
+from .operacion_detector import detectar_operacion, es_garaje
 
 logger = logging.getLogger(__name__)
 
@@ -97,6 +98,19 @@ class PuntoHogarScraper:
         # Build title from scraped tipo (site has no useful title element)
         tipo = data.get("tipo_propiedad", "Inmueble").capitalize()
         data["titulo"] = f"{tipo} en El Puerto de Santa María"
+
+        # Detect operation type and garaje
+        operacion = detectar_operacion(
+            titulo=data.get("titulo"), precio=data.get("precio"), url=url
+        )
+        if operacion:
+            data["tipo_operacion"] = operacion
+            if operacion == "alquiler":
+                data["activa"] = False
+                data["estado"] = "Alquiler"
+                return data
+        if es_garaje(titulo=data.get("titulo"), tipo_propiedad=data.get("tipo_propiedad"), url=url):
+            data["tipo_propiedad"] = "garaje"
 
         # Description — look for a text block after a "Descripción" heading
         desc_heading = soup.find(string=re.compile(r"[Dd]escripci[oó]n"))

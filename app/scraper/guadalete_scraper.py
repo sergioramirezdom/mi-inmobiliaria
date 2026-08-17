@@ -14,6 +14,7 @@ from .config import ScraperConfig
 from .zona_utils import extract_from_url as _zona_from_url, extract_from_html as _zona_from_html
 
 from .foto_extractor import extraer_fotos
+from .operacion_detector import detectar_operacion, es_garaje
 
 logger = logging.getLogger(__name__)
 
@@ -119,6 +120,20 @@ class GuadaleteScraper:
                 "terrenos": "terreno", "fincas": "finca",
             }
             data["tipo_propiedad"] = tipo_map.get(url_match.group(1), url_match.group(1))
+
+        # Detect operation type and garaje
+        operacion = detectar_operacion(
+            titulo=data.get("titulo"), precio=data.get("precio"), url=url,
+            descripcion=data.get("descripcion"),
+        )
+        if operacion:
+            data["tipo_operacion"] = operacion
+            if operacion == "alquiler":
+                data["activa"] = False
+                data["estado"] = "Alquiler"
+                return data
+        if es_garaje(titulo=data.get("titulo"), tipo_propiedad=data.get("tipo_propiedad"), url=url):
+            data["tipo_propiedad"] = "garaje"
 
         # Description
         for tag in soup.find_all(["div", "section", "p"]):

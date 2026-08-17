@@ -38,10 +38,11 @@ TABS = {
 DEFAULT_FILTERS = {
     "precio_min": 0, "precio_max": 0, "m2_min": 0, "hab_min": 0, "banos_min": 0,
     "tipos": [], "distritos": [], "caracteristicas": [], "search": "",
+    "tipo_operacion": "",
 }
 FILTER_WIDGET_KEYS = [
     "f_precio_min", "f_precio_max", "f_m2_min", "f_hab_min", "f_banos_min",
-    "f_tipos", "f_distritos", "f_caracteristicas", "f_search",
+    "f_tipos", "f_distritos", "f_caracteristicas", "f_search", "f_tipo_operacion",
 ]
 
 
@@ -98,6 +99,8 @@ def filtros_activos_resumen(f: dict) -> str:
         parts.append(f"≥{f['hab_min']} hab")
     if f["banos_min"]:
         parts.append(f"≥{f['banos_min']} baños")
+    if f.get("tipo_operacion"):
+        parts.append(f["tipo_operacion"].capitalize())
     parts += f["tipos"] + f["distritos"] + f["caracteristicas"]
     if f["search"]:
         parts.append(f"«{f['search']}»")
@@ -149,7 +152,10 @@ try:
             c6.multiselect("Tipo", tipos_opts, key="f_tipos")
             c7.multiselect("Distrito", distritos_opts, key="f_distritos")
             st.multiselect("Características (debe tener todas)", list(CARACTERISTICAS.keys()), key="f_caracteristicas")
-            st.text_input("Buscar en título/descripción", key="f_search")
+            c8, c9 = st.columns(2)
+            c8.selectbox("Operación", ["", "Venta", "Alquiler"], key="f_tipo_operacion",
+                         format_func=lambda x: "Todas" if x == "" else x)
+            c9.text_input("Buscar en título/descripción", key="f_search")
 
             col_apply, col_clear = st.columns([1, 1])
             aplicar = col_apply.form_submit_button("Aplicar", type="primary", use_container_width=True)
@@ -166,6 +172,7 @@ try:
             "distritos": st.session_state.f_distritos,
             "caracteristicas": st.session_state.f_caracteristicas,
             "search": st.session_state.f_search.strip(),
+            "tipo_operacion": st.session_state.f_tipo_operacion.lower() if st.session_state.f_tipo_operacion else "",
         }
         st.session_state.page = 1
     if limpiar:

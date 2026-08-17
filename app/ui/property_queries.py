@@ -70,6 +70,8 @@ def filter_conditions(filters: dict) -> list:
         conds.append(Propiedad.distrito.in_(filters["distritos"]))
     for label in filters.get("caracteristicas", []):
         conds.append(getattr(Propiedad, CARACTERISTICAS[label]) == True)
+    if filters.get("tipo_operacion"):
+        conds.append(Propiedad.tipo_operacion == filters["tipo_operacion"])
     if filters.get("search"):
         s = f"%{filters['search']}%"
         conds.append(or_(Propiedad.titulo.ilike(s), Propiedad.descripcion.ilike(s)))

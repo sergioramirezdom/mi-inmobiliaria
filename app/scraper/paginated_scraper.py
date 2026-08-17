@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from .base import ScraperBase
 from .generic import GenericScraper
 from .puerto_inmobiliaria import PuertoInmobiliariaScraper
+from .operacion_detector import detectar_operacion, es_garaje
 from .mobilia_scraper import MobiliaScraper
 from .punto_hogar_scraper import PuntoHogarScraper
 from .guadalete_scraper import GuadaleteScraper
@@ -293,6 +294,36 @@ class PaginatedScraper:
                             self.logger.info(f"⏭️ Propiedad vendida, no se guarda: {url_original[:60]}")
                             stats["vendidas"] = stats.get("vendidas", 0) + 1
                             continue
+
+                        # Skip rental properties (second check — scrapers also detect, but this is a safety net)
+                        operacion = raw_data.get("tipo_operacion") or detectar_operacion(
+                            titulo=raw_data.get("titulo"),
+                            precio=raw_data.get("precio"),
+                            url=url_original,
+                            descripcion=raw_data.get("descripcion"),
+                        )
+                        if operacion == "alquiler":
+                            raw_data["tipo_operacion"] = "alquiler"
+                            raw_data["activa"] = False
+                            raw_data["estado"] = "Alquiler"
+                            self.logger.info(f"⏭️ Alquiler detectado, no se guarda: {url_original[:60]}")
+                            stats["alquileres"] = stats.get("alquileres", 0) + 1
+                            continue
+
+                        # Skip garajes
+                        if es_garaje(
+                            titulo=raw_data.get("titulo"),
+                            tipo_propiedad=raw_data.get("tipo_propiedad"),
+                            url=url_original,
+                        ):
+                            raw_data["tipo_propiedad"] = "garaje"
+                            self.logger.info(f"⏭️ Garaje detectado, no se guarda: {url_original[:60]}")
+                            stats["garajes"] = stats.get("garajes", 0) + 1
+                            continue
+
+                        # Ensure tipo_operacion is set for venta
+                        if not operacion:
+                            raw_data["tipo_operacion"] = "venta"
 
                         # Skip properties from wrong municipality
                         if fuente_config.municipio_filter:
