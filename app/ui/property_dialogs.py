@@ -475,3 +475,98 @@ def buscar_fotos_dialog(prop, on_write=None):
         if on_write:
             on_write()
         st.rerun()
+
+
+@st.dialog("🏠 Visita a propiedad", width="medium")
+def visita_dialog(prop, on_write=None):
+    """Diálogo para registrar detalles de una visita a una propiedad."""
+    # --- Estado inicial de los widgets (pueden ser None/False) ---
+    estado_inicial = st.session_state.get(f"visita_inicial_{prop.id}")
+    if estado_inicial is None:
+        estado_inicial = {
+            "visitada": bool(prop.visitada),
+            "notas_visita": prop.notas_visita or "",
+            "oferta_realizada": bool(prop.oferta_realizada),
+            "precio_oferta": float(prop.precio_oferta or 0),
+            "respuesta_oferta": prop.respuesta_oferta or "Pendiente",
+        }
+        st.session_state[f"visita_inicial_{prop.id}"] = estado_inicial
+
+    # --- 1. Visitada ---
+    visitada = st.checkbox(
+        "He visitado esta propiedad",
+        value=estado_inicial["visitada"],
+        key=f"visita_{prop.id}_visitada",
+        help="Marca si ya has visitado esta propiedad.",
+    )
+
+    if not visitada:
+        st.caption("Marca la casilla para poder añadir los detalles de la visita y la oferta.")
+        st.divider()
+        if st.button("Cerrar", use_container_width=True):
+            st.rerun()
+        return
+
+    st.divider()
+
+    # --- 2. Notas de la visita ---
+    notas_visita = st.text_area(
+        "Notas de la visita",
+        value=estado_inicial["notas_visita"],
+        key=f"visita_{prop.id}_notas",
+        placeholder="Ej: Buen estado, necesita reforma de cocina...",
+        help="Apunta aquí todo lo que hayas observado durante la visita.",
+    )
+
+    st.divider()
+
+    # --- 3. Oferta realizada ---
+    oferta_realizada = st.checkbox(
+        "Oferta realizada",
+        value=estado_inicial["oferta_realizada"],
+        key=f"visita_{prop.id}_oferta",
+        help="Marca si has presentado una oferta por esta propiedad.",
+    )
+
+    if oferta_realizada:
+        # --- 4. Precio de la oferta ---
+        precio_oferta = st.number_input(
+            "Precio de la oferta (€)",
+            min_value=0.0,
+            value=estado_inicial["precio_oferta"],
+            step=1000.0,
+            format="€%.0f",
+            key=f"visita_{prop.id}_precio",
+            help="Cantidad económica de tu oferta.",
+        )
+
+        # --- 5. Respuesta del vendedor ---
+        respuesta_oferta = st.selectbox(
+            "Respuesta del vendedor",
+            options=["Pendiente", "Aceptada", "Rechazada", "Contrapropuesta"],
+            index=["Pendiente", "Aceptada", "Rechazada", "Contrapropuesta"].index(estado_inicial["respuesta_oferta"])
+            if estado_inicial["respuesta_oferta"] in ["Pendiente", "Aceptada", "Rechazada", "Contrapropuesta"] else 0,
+            key=f"visita_{prop.id}_respuesta",
+            help="¿Cómo ha respondido el vendedor a tu oferta?",
+        )
+    else:
+        precio_oferta = None
+        respuesta_oferta = None
+
+    st.divider()
+
+    # --- 6. Guardar ---
+    if st.button("Guardar", type="primary", use_container_width=True):
+        with Session(engine) as session:
+            PropiedadCRUD.update(session, prop.id,
+                visitada=visitada,
+                notas_visita=notas_visita,
+                oferta_realizada=oferta_realizada,
+                precio_oferta=precio_oferta,
+                respuesta_oferta=respuesta_oferta,
+            )
+        st.session_state.pop(f"visita_inicial_{prop.id}", None)
+        if on_write:
+            on_write()
+        st.toast("✅ Visita guardada")
+        st.rerun()

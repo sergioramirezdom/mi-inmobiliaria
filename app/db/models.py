@@ -97,6 +97,11 @@ class Propiedad(SQLModel, table=True):
     vista: bool = Field(default=False, index=True)
     descartada: bool = Field(default=False, index=True)
     favorita: bool = Field(default=False, index=True)
+    visitada: bool = Field(default=False, index=True)
+    notas_visita: Optional[str] = None
+    oferta_realizada: Optional[bool] = None
+    respuesta_oferta: Optional[str] = None  # pendiente | aceptada | rechazada | contrapropuesta
+    precio_oferta: Optional[float] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 

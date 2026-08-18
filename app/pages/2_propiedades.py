@@ -33,6 +33,7 @@ TABS = {
     "todas": "📋 Todas",
     "favoritas": "❤️ Favoritas",
     "descartadas": "❌ Descartadas",
+    "visitadas": "🏠 Visitadas",
     "vendidas": "🚫 Vendidas",
 }
 DEFAULT_FILTERS = {
@@ -61,7 +62,7 @@ def fetch_props(tab: str, filters_json: str, sort_key: str) -> list[dict]:
 def fetch_counts() -> dict:
     with Session(engine) as session:
         rows = session.exec(
-            select(Propiedad.activa, Propiedad.vista, Propiedad.descartada, Propiedad.favorita)
+            select(Propiedad.activa, Propiedad.vista, Propiedad.visitada, Propiedad.descartada, Propiedad.favorita)
         ).all()
     return counts_from_rows(rows)
 

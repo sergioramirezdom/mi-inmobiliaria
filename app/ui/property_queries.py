@@ -42,6 +42,8 @@ def tab_conditions(tab: str) -> list:
         return [Propiedad.favorita == True]
     if tab == "descartadas":
         return [Propiedad.descartada == True]
+    if tab == "visitadas":
+        return [Propiedad.visitada == True]
     if tab == "vendidas":
         return [Propiedad.activa == False]
     raise ValueError(f"Pestaña desconocida: {tab}")
@@ -130,13 +132,15 @@ def prop_to_dict(prop: Propiedad, fuente_manual_id: int | None = None) -> dict:
 
 
 def counts_from_rows(rows) -> dict:
-    """Contadores de pestañas desde tuplas (activa, vista, descartada, favorita)."""
-    c = {"nuevas": 0, "todas": 0, "favoritas": 0, "descartadas": 0, "vendidas": 0}
-    for activa, vista, descartada, favorita in rows:
+    """Contadores de pestañas desde tuplas (activa, vista, visitada, descartada, favorita)."""
+    c = {"nuevas": 0, "todas": 0, "favoritas": 0, "descartadas": 0, "visitadas": 0, "vendidas": 0}
+    for activa, vista, visitada, descartada, favorita in rows:
         if activa and not descartada:
             c["todas"] += 1
             if not vista:
                 c["nuevas"] += 1
+        if visitada:
+            c["visitadas"] += 1
         if favorita:
             c["favoritas"] += 1
         if descartada:
