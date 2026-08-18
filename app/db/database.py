@@ -193,6 +193,16 @@ class PropiedadCRUD:
         ).all()
         return sorted({b.strip() for b in rows if b and b.strip()}, key=str.lower)
 
+    @staticmethod
+    def get_distinct_zonas_normalizadas(session: Session) -> List[str]:
+        """Get all distinct non-empty zona_normalizada values, sorted alphabetically."""
+        rows = session.exec(
+            select(Propiedad.zona_normalizada).where(
+                Propiedad.zona_normalizada.is_not(None)
+            ).distinct()
+        ).all()
+        return sorted({z.strip() for z in rows if z and z.strip()}, key=str.lower)
+
 
 # CRUD Helpers for FiltroAlerta
 class FiltroAlertaCRUD:

@@ -158,8 +158,16 @@ class TelegramNotifier:
             text += f"{i}. {prop.titulo or 'Sin título'}\n"
             text += f"   💰 {precio_str} | {m2_str} | {hab_str}\n"
 
-            if prop.direccion:
-                text += f"   📍 {prop.direccion}\n"
+            # Show zona_normalizada (canonical), barrio (raw) as fallback, then direccion
+            location_parts = []
+            if prop.zona_normalizada:
+                location_parts.append(prop.zona_normalizada)
+            if prop.barrio and prop.barrio != prop.zona_normalizada:
+                location_parts.append(prop.barrio)
+            if prop.direccion and prop.direccion != prop.barrio:
+                location_parts.append(prop.direccion)
+            if location_parts:
+                text += f"   📍 {' · '.join(location_parts)}\n"
 
             # URL
             url_short = prop.url_original[:50] + "..." if len(prop.url_original) > 50 else prop.url_original

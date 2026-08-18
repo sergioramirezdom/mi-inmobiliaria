@@ -25,17 +25,13 @@ AMENIDADES_OPTS = ["Ascensor", "Garaje", "Piscina", "Terraza", "Balcón", "Aire 
 
 
 @st.cache_data(ttl=300)
-def get_distinct_barrios_cached() -> list[str]:
-    """Cached list of existing barrio values, used as multiselect suggestions.
-
-    Suggestions are a non-essential nicety (free typing always works), so a
-    DB error here should not block rendering the form.
-    """
+def get_distinct_zonas_cached() -> list[str]:
+    """Cached list of zona_normalizada values from DB, used as multiselect suggestions."""
     try:
         with Session(engine) as session:
-            return PropiedadCRUD.get_distinct_barrios(session)
+            return PropiedadCRUD.get_distinct_zonas_normalizadas(session)
     except Exception as e:
-        logger.warning(f"Could not load barrio suggestions: {e}")
+        logger.warning(f"Could not load zona suggestions: {e}")
         return []
 
 
@@ -98,17 +94,18 @@ def criteria_form(prefix: str, defaults: dict = None):
         estado_idx = estado_opts.index(estado_val) if estado_val in estado_opts else 0
         estado = st.selectbox("Estado", estado_opts, index=estado_idx, key=f"{prefix}_estado")
 
-    barrios_existentes = get_distinct_barrios_cached()
+    zonas_existentes = get_distinct_zonas_cached()
     barrio_val = d.get("barrio", "")
     barrio_default = [b.strip() for b in barrio_val.split(",") if b.strip()] if barrio_val else []
     barrio = st.multiselect(
-        "Zona/Barrio (una o varias — coincide con cualquiera)",
+        "Zona (una o varias — coincide con cualquiera)",
         options=sorted(
-            set(cargar_catalogo()) | set(barrios_existentes) | set(barrio_default)
+            set(cargar_catalogo()) | set(zonas_existentes) | set(barrio_default)
         ),
         default=barrio_default,
         accept_new_options=True,
         key=f"{prefix}_barrio",
+        help="Selecciona zonas normalizadas del catálogo. También puedes escribir libremente.",
     )
 
     amenidades_val = d.get("amenidades", "")
