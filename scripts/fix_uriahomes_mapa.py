@@ -41,28 +41,58 @@ def find_properties(session: Session):
 
 def main() -> None:
     with Session(engine) as session:
-        properties = find_properties(session)
+        # Find properties with 'mapa'/'map' in direccion
+        properties = session.exec(
+            select(Propiedad).where(
+                or_(
+                    Propiedad.direccion.ilike("%mapa"),
+                    Propiedad.direccion.ilike("%map"),
+                )
+            )
+        ).all()
 
         if not properties:
-            print("No se encontraron propiedades con 'mapa'/'map' al final de la direccion.")
+            print("No se encontraron propiedades con 'mapa'/'map' en la direccion.")
             return
 
-        fixed = []
+        print(f"Encontradas {len(properties)} propiedades para corregir:")
+        fixed = 0
         for prop in properties:
             direccion = prop.direccion
             if not direccion:
                 continue
             new_direccion = re.sub(
                 r"\s*mapa?\s*$", "", direccion, flags=re.IGNORECASE
-            )
+            ).strip()
             if new_direccion == direccion:
                 continue
-            PropiedadCRUD.update(session, prop.id, direccion=new_direccion)
-            fixed.append((prop.id, direccion, new_direccion))
+            print(f"  ID {prop.id}: '{direccion}' -> '{new_direccion}'")
+            prop.direccion = new_direccion
+            session.add(prop)
+            fixed += 1
 
-        print(f"Se corrigieron {len(fixed)} propiedades:")
-        for prop_id, old, new in fixed:
-            print(f"  ID {prop_id}: '{old}' -> '{new}'")
+        if fixed == 0:
+            print("Nada que corregir.")
+            return
+
+        session.commit()
+        print(f"\n✅ Commit realizado. {fixed} propiedades actualizadas.")
+
+        # Verify by re-querying
+        verify = session.exec(
+            select(Propiedad).where(
+                or_(
+                    Propiedad.direccion.ilike("%mapa"),
+                    Propiedad.direccion.ilike("%map"),
+                )
+            )
+        ).all()
+        if verify:
+            print(f"⚠️  Todavía hay {len(verify)} propiedades con 'mapa'/'map':")
+            for p in verify:
+                print(f"  ID {p.id}: '{p.direccion}'")
+        else:
+            print("✅ Verificación OK: no quedan propiedades con 'mapa'/'map'.")
 
 
 if __name__ == "__main__":
