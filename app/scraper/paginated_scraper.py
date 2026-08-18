@@ -20,6 +20,7 @@ from .jimenezruiz_scraper import JimenezRuizScraper
 from .manual_scraper import ManualScraper
 from .puertopiso_scraper import PuertoPisoScraper
 from .alonsaga_scraper import AlonsagaScraper
+from .uriahomes_scraper import UriaHomesScraper
 from .description_enricher import extract_barrio_from_text
 from .config import ScraperConfig
 from .zona_normalizer import CatalogoInvalidoError
@@ -89,6 +90,8 @@ class PaginatedScraper:
             self.detail_scraper = ManualScraper(fuente_config)
         elif detail_type == "alonsaga":
             self.detail_scraper = AlonsagaScraper(fuente_config)
+        elif detail_type == "uriahomes":
+            self.detail_scraper = UriaHomesScraper(fuente_config)
         else:
             self.detail_scraper = PuertoInmobiliariaScraper(fuente_config)
 
