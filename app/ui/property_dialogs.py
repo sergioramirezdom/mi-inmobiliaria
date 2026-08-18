@@ -535,7 +535,6 @@ def visita_dialog(prop, on_write=None):
             min_value=0.0,
             value=estado_inicial["precio_oferta"],
             step=1000.0,
-            format="€%.0f",
             key=f"visita_{prop.id}_precio",
             help="Cantidad económica de tu oferta.",
         )
