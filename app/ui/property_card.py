@@ -127,69 +127,42 @@ def render_card(p: dict, on_write):
     with st.container(border=True):
         st.markdown(card_html(p), unsafe_allow_html=True)
 
-        b = st.columns(5)
+        b = st.columns([1, 1, 1, 1, 1])
 
-        # b[0]: Status dropdown
-        status_options = []
-        status_labels = {}
+        # b[0]: Status popover (replaces invisible selectbox)
+        with b[0].popover("⚙️", help="Estado de la propiedad"):
+            st.markdown("**Acciones de estado**")
+            cols = st.columns(2)
+            if not p["favorita"]:
+                if cols[0].button("🤍 Favorita", key=f"fav_{p['id']}", use_container_width=True):
+                    _write(p, on_write, favorita=True, vista=True)
+            else:
+                if cols[0].button("❤️ Quitar fav", key=f"fav_{p['id']}", use_container_width=True):
+                    _write(p, on_write, favorita=False)
 
-        # Always available
-        status_options.append("none_reset")  # hidden default
-        status_labels["none_reset"] = "⚙️ Estado..."
+            if not p["descartada"]:
+                if cols[1].button("❌ Descartar", key=f"disc_{p['id']}", use_container_width=True):
+                    _write(p, on_write, descartada=True, vista=True)
+            else:
+                if cols[1].button("↩️ Restaurar", key=f"disc_{p['id']}", use_container_width=True):
+                    _write(p, on_write, descartada=False)
 
-        if not p["favorita"]:
-            status_labels["fav"] = "🤍 Marcar favorita"
-            status_options.append("fav")
-        else:
-            status_labels["unfav"] = "❤️ Quitar favorita"
-            status_options.append("unfav")
+            if not p["vista"]:
+                if cols[0].button("👁 Vista", key=f"view_{p['id']}", use_container_width=True):
+                    _write(p, on_write, vista=True)
 
-        if not p["descartada"]:
-            status_labels["discard"] = "❌ Descartar"
-            status_options.append("discard")
-        else:
-            status_labels["restore"] = "↩️ Restaurar"
-            status_options.append("restore")
-
-        if not p["vista"]:
-            status_labels["viewed"] = "👁 Marcar vista"
-            status_options.append("viewed")
-
-        if not p.get("visitada"):
-            status_labels["visited"] = "🏠 Marcar visitada"
-            status_options.append("visited")
-        else:
-            status_labels["unvisited"] = "📝 Editar visita"
-            status_options.append("unvisited")
-
-        selected = b[0].selectbox(
-            "Estado",
-            options=status_options,
-            format_func=lambda x: status_labels.get(x, x),
-            key=f"status_{p['id']}",
-            label_visibility="collapsed",
-        )
-
-        if selected == "fav":
-            _write(p, on_write, favorita=True, vista=True)
-        elif selected == "unfav":
-            _write(p, on_write, favorita=False)
-        elif selected == "discard":
-            _write(p, on_write, descartada=True, vista=True)
-        elif selected == "restore":
-            _write(p, on_write, descartada=False)
-        elif selected == "viewed":
-            _write(p, on_write, vista=True)
-        elif selected == "visited":
-            from ui.property_dialogs import visita_dialog
-            with Session(engine) as session:
-                prop = session.get(Propiedad, p["id"])
-            visita_dialog(prop, on_write=on_write)
-        elif selected == "unvisited":
-            from ui.property_dialogs import visita_dialog
-            with Session(engine) as session:
-                prop = session.get(Propiedad, p["id"])
-            visita_dialog(prop, on_write=on_write)
+            if not p.get("visitada"):
+                if cols[1].button("🏠 Visitada", key=f"visit_{p['id']}", use_container_width=True):
+                    from ui.property_dialogs import visita_dialog
+                    with Session(engine) as session:
+                        prop = session.get(Propiedad, p["id"])
+                    visita_dialog(prop, on_write=on_write)
+            else:
+                if cols[1].button("📝 Editar visita", key=f"visit_{p['id']}", use_container_width=True):
+                    from ui.property_dialogs import visita_dialog
+                    with Session(engine) as session:
+                        prop = session.get(Propiedad, p["id"])
+                    visita_dialog(prop, on_write=on_write)
 
         # b[1]: edit
         if b[1].button("✏️", key=f"edit_{p['id']}", help="Editar"):
