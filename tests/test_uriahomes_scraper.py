@@ -144,6 +144,34 @@ def test_extract_direccion():
     assert _extract_direccion(soup) == "El Puerto de Santa María, EL JUNCAL"
 
 
+def test_extract_direccion_excludes_mapa():
+    """The #inmueble2_titulo2_subtitulo contains a map button whose text must be excluded."""
+    html = '''
+    <p id="inmueble2_titulo2_subtitulo" class="pl-0 pl-md-2 mb-2">
+        El Puerto de Santa María, EL JUNCAL
+        <span id="boton_modal_mapa" class="link color-dark">
+            <i class="fas fa-map-marker-alt"></i> mapa
+        </span>
+    </p>
+    '''
+    soup = BeautifulSoup(html, "lxml")
+    result = _extract_direccion(soup)
+    assert result == "El Puerto de Santa María, EL JUNCAL"
+
+
+def test_extract_direccion_excludes_map_english():
+    """Same but with English 'map' text."""
+    html = '''
+    <p id="inmueble2_titulo2_subtitulo">
+        El Puerto de Santa María, EL JUNCAL
+        <span id="boton_modal_mapa"><i class="fas fa-map-marker-alt"></i> map</span>
+    </p>
+    '''
+    soup = BeautifulSoup(html, "lxml")
+    result = _extract_direccion(soup)
+    assert result == "El Puerto de Santa María, EL JUNCAL"
+
+
 def test_extract_municipio():
     direccion = "El Puerto de Santa María, EL JUNCAL"
     assert _extract_municipio(direccion) == "El Puerto de Santa María"

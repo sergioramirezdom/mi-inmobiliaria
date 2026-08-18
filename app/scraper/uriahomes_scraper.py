@@ -305,11 +305,22 @@ def _extract_tipo(soup: BeautifulSoup) -> Optional[str]:
 
 
 def _extract_direccion(soup: BeautifulSoup) -> Optional[str]:
-    """Extract the address line from #inmueble2_titulo2_subtitulo."""
+    """Extract the address line from #inmueble2_titulo2_subtitulo.
+
+    The element contains a map button (#boton_modal_mapa) whose text ('map'/'mapa')
+    must be excluded from the address.
+    """
     p = soup.select_one("#inmueble2_titulo2_subtitulo")
     if not p:
         return None
-    return p.get_text(strip=True) or None
+    # Remove the map button before extracting text
+    map_btn = p.select_one("#boton_modal_mapa")
+    if map_btn:
+        map_btn.decompose()
+    text = p.get_text(strip=True)
+    # Also strip trailing 'map'/'mapa' in case the selector didn't match
+    text = re.sub(r"\s*mapa?\s*$", "", text, flags=re.IGNORECASE)
+    return text or None
 
 
 def _extract_municipio(direccion: str) -> Optional[str]:
