@@ -11,8 +11,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from sqlmodel import Session, select
 
-from db.database import engine
-from db.models import Fuente, Propiedad, FiltroAlerta
+from db.database import engine, RegistroEjecucionCRUD
+from db.models import Fuente, Propiedad, FiltroAlerta, RegistroEjecucion
 from .runner import ScraperRunner
 from .sold_checker import check_sold_properties
 from notifications.telegram import TelegramNotifier
@@ -141,6 +141,24 @@ class ScraperScheduler:
 
                 # Update ultima_ejecucion in DB
                 self._update_execution_time(fuente, session)
+
+                # Write run-log row. Defensive: a log-write failure must never
+                # block notification sending below.
+                try:
+                    RegistroEjecucionCRUD.create(
+                        session,
+                        RegistroEjecucion(
+                            fuente_id=fuente.id,
+                            tipo="scrape",
+                            total=nuevas + duplicadas + errores,
+                            nuevas=nuevas,
+                            duplicadas=duplicadas,
+                            errores=errores,
+                            duracion_segundos=tiempo,
+                        ),
+                    )
+                except Exception as e:
+                    self.logger.warning(f"⚠️ No se pudo escribir RegistroEjecucion: {e}")
 
                 # Send notifications for new properties
                 if nuevas > 0:

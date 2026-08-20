@@ -8,7 +8,7 @@ from sqlalchemy import ARRAY
 # Handle Streamlit reloads: Clean up existing tables from metadata
 # so they can be redefined without "already defined" errors
 try:
-    for _t in ('fuente', 'propiedad', 'filtroalerta', 'preciohistorico'):
+    for _t in ('fuente', 'propiedad', 'filtroalerta', 'preciohistorico', 'registroejecucion'):
         if _t in SQLModel.metadata.tables:
             del SQLModel.metadata.tables[_t]
 except Exception:
@@ -102,6 +102,7 @@ class Propiedad(SQLModel, table=True):
     oferta_realizada: Optional[bool] = None
     respuesta_oferta: Optional[str] = None  # pendiente | aceptada | rechazada | contrapropuesta
     precio_oferta: Optional[float] = None
+    intentos_fallidos: Optional[int] = Field(default=0)  # consecutive "no data" sold-check strikes
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
@@ -143,3 +144,20 @@ class FiltroAlerta(SQLModel, table=True):
     chat_id_telegram: Optional[str] = None  # Optional: uses env variable if not set
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class RegistroEjecucion(SQLModel, table=True):
+    """Append-only run-log row: one per fuente per scrape/sold_check run."""
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    fuente_id: int = Field(foreign_key="fuente.id", index=True)
+    tipo: str = Field(index=True)  # "scrape" | "sold_check"
+    fecha: datetime = Field(default_factory=datetime.utcnow, index=True)
+    total: int = 0  # properties checked / scraped
+    activas: Optional[int] = None
+    vendidas: Optional[int] = None  # deactivated this run
+    sin_datos: Optional[int] = None  # EMPTY outcomes (strikes issued, incl. non-deactivating)
+    errores: int = 0
+    nuevas: Optional[int] = None  # scrape only
+    duplicadas: Optional[int] = None  # scrape only
+    duracion_segundos: Optional[float] = None

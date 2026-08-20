@@ -2,10 +2,10 @@
 
 from datetime import datetime, UTC
 
-from sqlalchemy import or_
+from sqlalchemy import func, or_
 from sqlmodel import select
 
-from db.models import Propiedad
+from db.models import Propiedad, PrecioHistorico
 
 # label → nombre de campo en Propiedad (el orden define el orden de los chips)
 CARACTERISTICAS = {
@@ -74,6 +74,9 @@ def filter_conditions(filters: dict) -> list:
         conds.append(getattr(Propiedad, CARACTERISTICAS[label]) == True)
     if filters.get("tipo_operacion"):
         conds.append(Propiedad.tipo_operacion == filters["tipo_operacion"])
+    if filters.get("solo_bajadas"):
+        conds.append(Propiedad.precio_anterior != None)
+        conds.append(Propiedad.precio_anterior > Propiedad.precio)
     if filters.get("search"):
         s = f"%{filters['search']}%"
         conds.append(or_(Propiedad.titulo.ilike(s), Propiedad.descripcion.ilike(s)))
@@ -97,11 +100,42 @@ def precio_por_m2(precio, superficie):
     return round(precio / superficie)
 
 
-def prop_to_dict(prop: Propiedad, fuente_manual_id: int | None = None) -> dict:
+def bajada_total_map(session, ids: list[int]) -> dict[int, float]:
+    """id → precio máximo registrado en PrecioHistorico para esa propiedad.
+
+    PrecioHistorico guarda un snapshot por cada cambio de precio detectado.
+    Usamos el máximo histórico (no solo el último precio_anterior) para que
+    la tarjeta pueda mostrar la bajada TOTAL acumulada, no solo el último paso.
+    """
+    if not ids:
+        return {}
+    rows = session.exec(
+        select(PrecioHistorico.propiedad_id, func.max(PrecioHistorico.precio))
+        .where(PrecioHistorico.propiedad_id.in_(ids))
+        .group_by(PrecioHistorico.propiedad_id)
+    ).all()
+    return {propiedad_id: max_precio for propiedad_id, max_precio in rows}
+
+
+def prop_to_dict(
+    prop: Propiedad,
+    fuente_manual_id: int | None = None,
+    bajada_map: dict[int, float] | None = None,
+) -> dict:
     """Dict plano para la tarjeta — sin objetos ORM vivos."""
     bajada = None
-    if prop.precio and prop.precio_anterior and prop.precio_anterior > prop.precio:
-        bajada = round(prop.precio_anterior - prop.precio)
+    if prop.precio:
+        # El precio más alto conocido: el máximo del historial (varias bajadas
+        # sucesivas) o, a falta de historial, el último precio_anterior.
+        candidatos = [
+            v
+            for v in [(bajada_map or {}).get(prop.id), prop.precio_anterior]
+            if v
+        ]
+        if candidatos:
+            precio_max = max(candidatos)
+            if precio_max > prop.precio:
+                bajada = round(precio_max - prop.precio)
     dias = None
     if prop.fecha_scraping:
         dias = (datetime.now(UTC).replace(tzinfo=None) - prop.fecha_scraping).days
@@ -115,6 +149,8 @@ def prop_to_dict(prop: Propiedad, fuente_manual_id: int | None = None) -> dict:
         "habitaciones": prop.habitaciones,
         "banos": prop.banos,
         "tipo": prop.tipo_propiedad,
+        "ascensor": prop.ascensor,
+        "planta": prop.planta,
         "barrio": prop.barrio,
         "municipio": prop.municipio,
         "chips": [label for label, field in CARACTERISTICAS.items() if getattr(prop, field)],
@@ -126,6 +162,10 @@ def prop_to_dict(prop: Propiedad, fuente_manual_id: int | None = None) -> dict:
         "activa": prop.activa,
         "estado": prop.estado,
         "vista": prop.vista,
+        "visitada": prop.visitada,
+        "oferta_realizada": prop.oferta_realizada,
+        "respuesta_oferta": prop.respuesta_oferta,
+        "precio_oferta": prop.precio_oferta,
         "favorita": prop.favorita,
         "descartada": prop.descartada,
     }
