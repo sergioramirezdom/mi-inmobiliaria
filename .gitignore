@@ -87,3 +87,5 @@ Thumbs.db
 poetry.lock
 .venv/
 docs/superpowers/zonas_actuales.csv
+# Local Pi runtime state
+.atl/
