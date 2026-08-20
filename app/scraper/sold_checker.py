@@ -1,46 +1,55 @@
 """Verify active properties and mark sold/reserved ones as inactive."""
 
 import logging
+import time
 from datetime import datetime
 from typing import Dict, Any, Optional
 
 from sqlmodel import Session, select
 
-from db.models import Propiedad, Fuente, PrecioHistorico
+from db.models import Propiedad, Fuente, PrecioHistorico, RegistroEjecucion
+from db.database import RegistroEjecucionCRUD
 from .config import ScraperConfig
-from .puerto_inmobiliaria import PuertoInmobiliariaScraper
-from .mobilia_scraper import MobiliaScraper
-from .punto_hogar_scraper import PuntoHogarScraper
-from .guadalete_scraper import GuadaleteScraper
-from .puertopiso_scraper import PuertoPisoScraper
-from .manual_scraper import ManualScraper
-from .alonsaga_scraper import AlonsagaScraper
+from .detail_factory import get_detail_scraper
+from .check_outcome import CheckOutcome, classify_check_outcome, apply_check_outcome
 
 logger = logging.getLogger(__name__)
 
 
 def _get_scraper(detail_type: Optional[str], config: ScraperConfig):
-    if detail_type == "mobilia":
-        return MobiliaScraper(config)
-    elif detail_type == "puntohogar":
-        return PuntoHogarScraper(config)
-    elif detail_type == "guadalete":
-        return GuadaleteScraper(config)
-    elif detail_type == "puertopiso":
-        return PuertoPisoScraper(config)
-    elif detail_type == "manual_auto":
-        return ManualScraper(config)
-    elif detail_type == "alonsaga":
-        return AlonsagaScraper(config)
-    return PuertoInmobiliariaScraper(config)
+    """Resolve a detail scraper for `detail_type`.
+
+    Delegates to the shared `detail_factory.get_detail_scraper()` registry so
+    this call site cannot silently diverge from `paginated_scraper.py` again
+    (the Aug 20 incident: this function was missing `uriahomes`/`jimenezruiz`
+    and mis-classified those properties with the generic fallback scraper).
+    Kept as a thin alias for import-compatibility with existing tests/callers.
+    """
+    return get_detail_scraper(detail_type, config)
+
+
+def _fuente_stats(por_fuente: Dict[int, Dict[str, int]], fuente_id: Optional[int]) -> Dict[str, int]:
+    """Get or create the per-fuente stat bucket used to build RegistroEjecucion rows."""
+    return por_fuente.setdefault(
+        fuente_id, {"total": 0, "activas": 0, "vendidas": 0, "sin_datos": 0, "errores": 0}
+    )
 
 
 async def check_sold_properties(session: Session, limit: Optional[int] = None) -> Dict[str, Any]:
     """
     Fetch all active properties' detail pages and mark sold/reserved ones inactive.
 
-    Returns stats dict including a 'vendidas_lista' list for Telegram notifications.
+    Uses `classify_check_outcome()` + `apply_check_outcome()` as the single
+    gate: an explicit GONE signal deactivates immediately, an EMPTY (no-data)
+    result only deactivates after a second confirming strike
+    (`STRIKE_THRESHOLD`), and fetch errors never touch the strike counter.
+
+    Returns stats dict including a 'vendidas_lista' list for Telegram
+    notifications and a 'por_fuente' breakdown used to write one
+    RegistroEjecucion row per fuente touched.
     """
+    start_time = time.time()
+
     propiedades = session.exec(
         select(Propiedad).where(Propiedad.activa == True).order_by(Propiedad.fecha_scraping.asc())
     ).all()
@@ -55,12 +64,17 @@ async def check_sold_properties(session: Session, limit: Optional[int] = None) -
         "vendidas": 0,
         "activas": 0,
         "errores": 0,
+        "sin_datos": 0,
         "vendidas_lista": [],
+        "por_fuente": {},
     }
+    por_fuente = stats["por_fuente"]
 
     logger.info(f"🔍 Verificando {stats['total']} propiedades activas...")
 
     for i, prop in enumerate(propiedades, 1):
+        fstats = _fuente_stats(por_fuente, prop.fuente_id)
+        fstats["total"] += 1
         try:
             fuente = fuentes.get(prop.fuente_id)
             config = (
@@ -71,44 +85,31 @@ async def check_sold_properties(session: Session, limit: Optional[int] = None) -
             scraper = _get_scraper(config.detail_scraper_type, config)
             details = await scraper.scrape_property_details(prop.url_original)
 
-            # Determine if property is still active
-            # Case 1: scraper explicitly says inactive
-            if "activa" in details and not details["activa"]:
-                estado = details.get("estado", "Vendida")
-                prop.activa = False
-                prop.estado = estado
-                prop.fecha_baja = datetime.utcnow()
-                session.add(prop)
-                session.commit()
-                logger.info(f"[{i}/{stats['total']}] 🚫 {estado}: {prop.titulo[:60]}")
+            outcome = classify_check_outcome(details)
+            estado = details.get("estado", "Vendida") if outcome is CheckOutcome.GONE else None
+            result = apply_check_outcome(session, prop, outcome, estado=estado)
+
+            if result == "deactivated":
+                logger.info(f"[{i}/{stats['total']}] 🚫 {prop.estado}: {prop.titulo[:60]}")
                 stats["vendidas"] += 1
+                fstats["vendidas"] += 1
                 stats["vendidas_lista"].append({
                     "titulo": prop.titulo,
                     "url": prop.url_original,
                     "precio": prop.precio,
-                    "estado": estado,
+                    "estado": prop.estado,
                 })
-            # Case 2: scraper returned data but no key fields — likely a bad/redirected page
-            elif "activa" not in details and not details.get("titulo") and not details.get("precio"):
+            elif result == "strike":
                 logger.warning(
                     f"[{i}/{stats['total']}] ⚠️ Scraper sin datos válidos para "
-                    f"{prop.url_original[:60]} — marcando como no disponible"
+                    f"{prop.url_original[:60]} — 1ª confirmación, aún activa"
                 )
-                prop.activa = False
-                prop.estado = "No disponible"
-                prop.fecha_baja = datetime.utcnow()
-                session.add(prop)
-                session.commit()
-                stats["vendidas"] += 1
-                stats["vendidas_lista"].append({
-                    "titulo": prop.titulo,
-                    "url": prop.url_original,
-                    "precio": prop.precio,
-                    "estado": "No disponible",
-                })
-            else:
+                stats["sin_datos"] += 1
+                fstats["sin_datos"] += 1
+            else:  # "alive"
                 logger.debug(f"[{i}/{stats['total']}] ✅ Activa: {prop.titulo[:60]}")
                 stats["activas"] += 1
+                fstats["activas"] += 1
                 # Price change detection for manual properties
                 if config.detail_scraper_type == "manual_auto":
                     nuevo_precio = details.get("precio")
@@ -135,16 +136,13 @@ async def check_sold_properties(session: Session, limit: Optional[int] = None) -
 
         except Exception as e:
             err_str = str(e)
-            # 404 via raise_for_status() → property gone, mark as inactive
+            # 404 via raise_for_status() → property gone, mark as inactive (GONE, no strike needed)
             if "404" in err_str or "Not Found" in err_str:
                 try:
-                    prop.activa = False
-                    prop.estado = "No disponible"
-                    prop.fecha_baja = datetime.utcnow()
-                    session.add(prop)
-                    session.commit()
+                    result = apply_check_outcome(session, prop, CheckOutcome.GONE, estado="No disponible")
                     logger.info(f"[{i}/{stats['total']}] 🚫 404 No disponible: {prop.titulo[:60]}")
                     stats["vendidas"] += 1
+                    fstats["vendidas"] += 1
                     stats["vendidas_lista"].append({
                         "titulo": prop.titulo,
                         "url": prop.url_original,
@@ -153,12 +151,43 @@ async def check_sold_properties(session: Session, limit: Optional[int] = None) -
                     })
                 except Exception:
                     stats["errores"] += 1
+                    fstats["errores"] += 1
             else:
+                # Fetch/network errors are a no-op for the strike counter — never
+                # routed through apply_check_outcome(), only counted as errors.
                 logger.warning(f"[{i}/{stats['total']}] ⚠️ Error en {prop.url_original[:60]}: {e}")
                 stats["errores"] += 1
+                fstats["errores"] += 1
+
+    elapsed = time.time() - start_time
 
     logger.info(
         f"✅ Verificación completa — vendidas: {stats['vendidas']}, "
-        f"activas: {stats['activas']}, errores: {stats['errores']}"
+        f"activas: {stats['activas']}, sin_datos: {stats['sin_datos']}, "
+        f"errores: {stats['errores']}"
     )
+
+    # One RegistroEjecucion row per fuente touched. All rows for this run
+    # share the whole-run duration (simplest cadence — see design's
+    # "Run-log write site" decision; per-fuente sub-timing was not specified).
+    for fuente_id, fstat in por_fuente.items():
+        if fuente_id is None:
+            continue
+        try:
+            RegistroEjecucionCRUD.create(
+                session,
+                RegistroEjecucion(
+                    fuente_id=fuente_id,
+                    tipo="sold_check",
+                    total=fstat["total"],
+                    activas=fstat["activas"],
+                    vendidas=fstat["vendidas"],
+                    sin_datos=fstat["sin_datos"],
+                    errores=fstat["errores"],
+                    duracion_segundos=round(elapsed, 2),
+                ),
+            )
+        except Exception as e:
+            logger.warning(f"⚠️ No se pudo escribir RegistroEjecucion para fuente {fuente_id}: {e}")
+
     return stats

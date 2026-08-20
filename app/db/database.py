@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from config import settings
-from db.models import Fuente, Propiedad, FiltroAlerta, PrecioHistorico
+from db.models import Fuente, Propiedad, FiltroAlerta, PrecioHistorico, RegistroEjecucion
 
 logger = logging.getLogger(__name__)
 
@@ -254,3 +254,33 @@ class FiltroAlertaCRUD:
         session.delete(filtro)
         session.commit()
         return True
+
+
+# CRUD Helpers for RegistroEjecucion (append-only run log)
+class RegistroEjecucionCRUD:
+    """CRUD operations for RegistroEjecucion. Rows are append-only — no update/delete."""
+
+    @staticmethod
+    def create(session: Session, registro: RegistroEjecucion) -> RegistroEjecucion:
+        """Persist one run-log row."""
+        session.add(registro)
+        session.commit()
+        session.refresh(registro)
+        return registro
+
+    @staticmethod
+    def get_by_fuente(session: Session, fuente_id: int, limit: int = 50) -> List[RegistroEjecucion]:
+        """Get the most recent run-log rows for a single fuente."""
+        stmt = (
+            select(RegistroEjecucion)
+            .where(RegistroEjecucion.fuente_id == fuente_id)
+            .order_by(RegistroEjecucion.fecha.desc())
+            .limit(limit)
+        )
+        return session.exec(stmt).all()
+
+    @staticmethod
+    def get_recent(session: Session, limit: int = 50) -> List[RegistroEjecucion]:
+        """Get the most recent run-log rows across all fuentes."""
+        stmt = select(RegistroEjecucion).order_by(RegistroEjecucion.fecha.desc()).limit(limit)
+        return session.exec(stmt).all()

@@ -13,17 +13,11 @@ from .base import ScraperBase
 from .generic import GenericScraper
 from .puerto_inmobiliaria import PuertoInmobiliariaScraper
 from .operacion_detector import detectar_operacion, es_garaje
-from .mobilia_scraper import MobiliaScraper
-from .punto_hogar_scraper import PuntoHogarScraper
-from .guadalete_scraper import GuadaleteScraper
-from .jimenezruiz_scraper import JimenezRuizScraper
-from .manual_scraper import ManualScraper
-from .puertopiso_scraper import PuertoPisoScraper
-from .alonsaga_scraper import AlonsagaScraper
-from .uriahomes_scraper import UriaHomesScraper
+from .detail_factory import get_detail_scraper
 from .description_enricher import extract_barrio_from_text
 from .config import ScraperConfig
 from .zona_normalizer import CatalogoInvalidoError
+from .check_outcome import CheckOutcome, classify_check_outcome, apply_check_outcome
 from db.models import Fuente, Propiedad, PrecioHistorico
 
 
@@ -74,26 +68,11 @@ class PaginatedScraper:
             except Exception as e:
                 self.logger.warning(f"Could not load config from fuente.notas: {e}")
 
-        # Choose detail scraper based on config
+        # Choose detail scraper based on config — routed through the shared
+        # registry (app/scraper/detail_factory.py) so this call site cannot
+        # silently diverge from sold_checker.py's resolution again.
         detail_type = fuente_config.detail_scraper_type
-        if detail_type == "mobilia":
-            self.detail_scraper = MobiliaScraper(fuente_config)
-        elif detail_type == "puntohogar":
-            self.detail_scraper = PuntoHogarScraper(fuente_config)
-        elif detail_type == "guadalete":
-            self.detail_scraper = GuadaleteScraper(fuente_config)
-        elif detail_type == "jimenezruiz":
-            self.detail_scraper = JimenezRuizScraper(fuente_config)
-        elif detail_type == "puertopiso":
-            self.detail_scraper = PuertoPisoScraper(fuente_config)
-        elif detail_type == "manual_auto":
-            self.detail_scraper = ManualScraper(fuente_config)
-        elif detail_type == "alonsaga":
-            self.detail_scraper = AlonsagaScraper(fuente_config)
-        elif detail_type == "uriahomes":
-            self.detail_scraper = UriaHomesScraper(fuente_config)
-        else:
-            self.detail_scraper = PuertoInmobiliariaScraper(fuente_config)
+        self.detail_scraper = get_detail_scraper(detail_type, fuente_config)
 
         # Config max_pages overrides the parameter
         if fuente_config.max_pages is not None:
@@ -232,23 +211,22 @@ class PaginatedScraper:
                                 if days_old >= 3:
                                     try:
                                         details = await self.detail_scraper.scrape_property_details(url_original)
-                                        # Case 1: scraper explicitly says inactive
-                                        is_inactive = ("activa" in details and not details["activa"])
-                                        # Case 2: no activa field AND no key data — bad/redirected page
-                                        is_empty = (
-                                            "activa" not in details
-                                            and not details.get("titulo")
-                                            and not details.get("precio")
-                                        )
-                                        if is_inactive or is_empty:
-                                            existing.activa = False
-                                            existing.estado = details.get("estado", "No disponible")
-                                            existing.fecha_baja = datetime.utcnow()
-                                            self.db_session.add(existing)
-                                            self.db_session.commit()
+                                        # Routed through the same shared gate as sold_checker.py so
+                                        # both paths read/update the same strike counter: GONE
+                                        # deactivates immediately, EMPTY only deactivates on the
+                                        # 2nd confirming strike, ERROR is unreachable here (this
+                                        # classifier never returns it — fetch failures are caught
+                                        # by the `except Exception: pass` below, untouched).
+                                        outcome = classify_check_outcome(details)
+                                        estado = details.get("estado", "No disponible") if outcome is CheckOutcome.GONE else None
+                                        result = apply_check_outcome(self.db_session, existing, outcome, estado=estado)
+
+                                        if result == "deactivated":
                                             self.logger.info(f"🚫 Marcada como no disponible: {existing.titulo}")
                                             stats["vendidas"] = stats.get("vendidas", 0) + 1
-                                        else:
+                                        elif result == "strike":
+                                            self.logger.info(f"⚠️ Sin datos (1ª confirmación), sigue activa: {existing.titulo}")
+                                        elif result == "alive":
                                             # Check for price change
                                             nuevo_precio = details.get("precio")
                                             if nuevo_precio and existing.precio and abs(nuevo_precio - existing.precio) > 100:
