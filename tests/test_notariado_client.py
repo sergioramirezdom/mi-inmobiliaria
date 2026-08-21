@@ -85,9 +85,12 @@ def test_fetch_stats_sends_bearer_and_query_params():
         assert request.headers["Authorization"] == "Bearer fake-token"
         params = dict(httpx.QueryParams(request.url.query.decode("utf-8")))
         assert params == {
+            "lang": "es",
             "locationCode": LOCATION_CODE,
+            "locationType": "MN",
             "propertyType": str(property_type),
             "constructionType": str(construction_type),
+            "kpi": "pricePerSqm",
         }
 
 
