@@ -2,6 +2,7 @@
 
 import logging
 import time
+import uuid
 from datetime import datetime
 from typing import Dict, Any, Optional
 
@@ -49,6 +50,7 @@ async def check_sold_properties(session: Session, limit: Optional[int] = None) -
     RegistroEjecucion row per fuente touched.
     """
     start_time = time.time()
+    run_id = str(uuid.uuid4())
 
     propiedades = session.exec(
         select(Propiedad).where(Propiedad.activa == True).order_by(Propiedad.fecha_scraping.asc())
@@ -185,6 +187,7 @@ async def check_sold_properties(session: Session, limit: Optional[int] = None) -
                     sin_datos=fstat["sin_datos"],
                     errores=fstat["errores"],
                     duracion_segundos=round(elapsed, 2),
+                    run_id=run_id,
                 ),
             )
         except Exception as e:

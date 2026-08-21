@@ -161,6 +161,7 @@ class RegistroEjecucion(SQLModel, table=True):
     nuevas: Optional[int] = None  # scrape only
     duplicadas: Optional[int] = None  # scrape only
     duracion_segundos: Optional[float] = None
+    run_id: Optional[str] = Field(default=None, index=True)  # UUID4 shared by all rows from one top-level cycle
 
 
 class EstadisticaNotarial(SQLModel, table=True):
@@ -187,3 +188,4 @@ class EstadisticaNotarial(SQLModel, table=True):
     report_date: datetime
     raw_json: str  # full response body — no credentials, never redacted
     created_at: datetime = Field(default_factory=datetime.utcnow)
+    

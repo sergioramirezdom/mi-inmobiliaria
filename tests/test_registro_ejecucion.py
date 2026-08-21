@@ -71,6 +71,33 @@ def test_registro_ejecucion_table_creates_and_persists_a_row():
         assert registro.fecha is not None
 
 
+def test_registro_ejecucion_accepts_and_persists_run_id():
+    engine = _memory_engine()
+    _create_fuente_and_registro_tables(engine)
+    with Session(engine) as session:
+        fuente = Fuente(nombre="Test", url="http://example.com/4")
+        session.add(fuente)
+        session.commit()
+        session.refresh(fuente)
+
+        registro = RegistroEjecucion(
+            fuente_id=fuente.id,
+            tipo="scrape",
+            total=1,
+            run_id="11111111-1111-1111-1111-111111111111",
+        )
+        session.add(registro)
+        session.commit()
+        session.refresh(registro)
+
+        assert registro.run_id == "11111111-1111-1111-1111-111111111111"
+
+
+def test_registro_ejecucion_run_id_defaults_to_none():
+    registro = RegistroEjecucion(fuente_id=1, tipo="scrape", total=1)
+    assert registro.run_id is None
+
+
 def test_registro_ejecucion_nuevas_duplicadas_are_optional_for_sold_check_rows():
     engine = _memory_engine()
     _create_fuente_and_registro_tables(engine)

@@ -287,6 +287,18 @@ class RegistroEjecucionCRUD:
         return session.exec(stmt).all()
 
     @staticmethod
+    def get_by_run_id(session: Session, run_id: str, limit: int = 200) -> List[RegistroEjecucion]:
+        """Get every run-log row written during a single top-level cycle
+        (same run_id), ordered chronologically (fecha ascending)."""
+        stmt = (
+            select(RegistroEjecucion)
+            .where(RegistroEjecucion.run_id == run_id)
+            .order_by(RegistroEjecucion.fecha.asc())
+            .limit(limit)
+        )
+        return session.exec(stmt).all()
+
+    @staticmethod
     def get_recent(session: Session, limit: int = 50) -> List[RegistroEjecucion]:
         """Get the most recent run-log rows across all fuentes."""
         stmt = select(RegistroEjecucion).order_by(RegistroEjecucion.fecha.desc()).limit(limit)
