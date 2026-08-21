@@ -348,6 +348,11 @@ ESTADO_ALERTA = {
 }
 _CONSTRUCCION_LABEL = {"obra_nueva": "Obra nueva", "segunda_mano": "Segunda mano"}
 
+# Selector de tipo de vivienda de la pestaña Notarial — solo pisos, solo
+# casas, o ambos a la vez.
+TIPO_VIVIENDA_OPTIONS = {"piso": "🏢 Pisos", "casa": "🏡 Casas", "ambos": "🏘️ Pisos y casas"}
+TIPO_VIVIENDA_ETIQUETA = {"piso": "piso", "casa": "casa", "ambos": "piso y casa"}
+
 
 def n_(v) -> str:
     return f"{v:,.0f}".replace(",", ".") if v is not None and pd.notna(v) else "N/D"
@@ -360,17 +365,35 @@ def _combo_label(row) -> str:
     )
 
 
-def _serie_piso_por_construccion(df: pd.DataFrame, columna: str) -> pd.DataFrame:
-    """Serie mensual de `columna` para property_type=piso, una traza por construction_type."""
+def _media_o_none(serie: pd.Series):
+    """Media de una Serie descartando nulos, o None si no queda ningún dato
+    (evita que un NaN se cuele como si fuera un valor real)."""
+    serie = serie.dropna()
+    return float(serie.mean()) if not serie.empty else None
+
+
+def _serie_por_construccion(
+    df: pd.DataFrame, property_types: list, columna: str
+) -> pd.DataFrame:
+    """Serie mensual de `columna` para los `property_types` dados, una traza
+    por combo (property_type, construction_type) presente. Con un solo tipo
+    seleccionado la traza se etiqueta solo por construction_type (como
+    antes); con varios, por el combo completo para no perder la distinción."""
+    multi = len(property_types) > 1
     partes = []
-    for construction_type in ("obra_nueva", "segunda_mano"):
-        s = ns.serie_mensual(df, "piso", construction_type, columna)
-        if not s.empty:
-            s = s.copy()
-            s["construction_type"] = _CONSTRUCCION_LABEL[construction_type]
-            partes.append(s)
+    for property_type in property_types:
+        for construction_type in ("obra_nueva", "segunda_mano"):
+            s = ns.serie_mensual(df, property_type, construction_type, columna)
+            if not s.empty:
+                s = s.copy()
+                s["serie"] = (
+                    ns.COMBO_LABELS[(property_type, construction_type)]
+                    if multi
+                    else _CONSTRUCCION_LABEL[construction_type]
+                )
+                partes.append(s)
     if not partes:
-        return pd.DataFrame(columns=["last_data_update", columna, "construction_type"])
+        return pd.DataFrame(columns=["last_data_update", columna, "serie"])
     return pd.concat(partes, ignore_index=True)
 
 
@@ -386,24 +409,35 @@ def render_notarial(notarial_rows: list, props: list):
     latest = ns.latest_por_combo(df)
     listing_por_tipo = ns.listing_precio_m2_medio_por_tipo(props)
     tabla = ns.tabla_comparativa(latest, listing_por_tipo)
-    piso_df = df[df["property_type"] == "piso"]
+
+    tipo_sel = st.segmented_control(
+        "Tipo de vivienda",
+        options=list(TIPO_VIVIENDA_OPTIONS.keys()),
+        format_func=lambda k: TIPO_VIVIENDA_OPTIONS[k],
+        default="ambos", key="notarial_tipo_vivienda",
+        label_visibility="collapsed",
+    ) or "ambos"
+    tipos_seleccionados = ["piso", "casa"] if tipo_sel == "ambos" else [tipo_sel]
+    etiqueta_tipo = TIPO_VIVIENDA_ETIQUETA[tipo_sel]
+    tipo_df = df[df["property_type"].isin(tipos_seleccionados)]
 
     # ── KPIs (mes más reciente con dato vs el anterior) ────────────────
     d_ventas = ns.delta_ultimo_periodo(
         ns.serie_mensual_total(df, "current_number_of_sales", agg="sum"), "current_number_of_sales"
     )
     d_precio_m2 = ns.delta_ultimo_periodo(
-        ns.serie_mensual_total(piso_df, "current_price_per_sqm", agg="mean"), "current_price_per_sqm"
+        ns.serie_mensual_total(tipo_df, "current_price_per_sqm", agg="mean"), "current_price_per_sqm"
     )
     d_precio_medio = ns.delta_ultimo_periodo(
-        ns.serie_mensual_total(piso_df, "current_average_price", agg="mean"), "current_average_price"
+        ns.serie_mensual_total(tipo_df, "current_average_price", agg="mean"), "current_average_price"
     )
 
     fila_referencia = tabla[
-        (tabla["property_type"] == "piso") & (tabla["construction_type"] == "segunda_mano")
+        (tabla["property_type"].isin(tipos_seleccionados))
+        & (tabla["construction_type"] == "segunda_mano")
     ]
-    diferencia_ref = fila_referencia["diferencia"].iloc[0] if not fila_referencia.empty else None
-    oficial_ref = fila_referencia["precio_m2_oficial"].iloc[0] if not fila_referencia.empty else None
+    diferencia_ref = _media_o_none(fila_referencia["diferencia"])
+    oficial_ref = _media_o_none(fila_referencia["precio_m2_oficial"])
     estado = ns.estado_comparacion_mercado(diferencia_ref, oficial_ref)
 
     st.subheader("📌 Resumen del mercado")
@@ -414,18 +448,20 @@ def render_notarial(notarial_rows: list, props: list):
         delta_color="off",
     )
     c2.metric(
-        "💶 €/m² oficial (piso)",
+        f"💶 €/m² oficial ({etiqueta_tipo})",
         eur(d_precio_m2["actual"]) if d_precio_m2["actual"] is not None else "N/D",
         delta=f"{d_precio_m2['delta_pct']:+.1f}%" if d_precio_m2["delta_pct"] is not None else None,
         delta_color="inverse",
     )
     c3.metric(
-        "🏠 Precio medio oficial (piso)",
+        f"🏠 Precio medio oficial ({etiqueta_tipo})",
         eur(d_precio_medio["actual"]) if d_precio_medio["actual"] is not None else "N/D",
         delta=f"{d_precio_medio['delta_pct']:+.1f}%" if d_precio_medio["delta_pct"] is not None else None,
         delta_color="inverse",
     )
     alerta_fn, mensaje = ESTADO_ALERTA[estado]
+    if estado == "sin_datos":
+        mensaje = f"Sin datos suficientes todavía para comparar mercado vs oficial ({etiqueta_tipo} · segunda mano)."
     sufijo = f" (diferencia: {eur(diferencia_ref)}/m²)" if diferencia_ref is not None else ""
     alerta_fn(f"{ESTADO_LABEL[estado]} — {mensaje}{sufijo}")
     st.caption(
@@ -434,8 +470,8 @@ def render_notarial(notarial_rows: list, props: list):
     )
     st.divider()
 
-    # ── Evolución mensual — piso, obra nueva vs segunda mano, 3 en fila ─
-    st.subheader("📈 Evolución mensual — piso")
+    # ── Evolución mensual, 3 en fila ────────────────────────────────────
+    st.subheader(f"📈 Evolución mensual — {TIPO_VIVIENDA_OPTIONS[tipo_sel].split(' ', 1)[1]}")
     metricas_evolucion = [
         ("current_price_per_sqm", "€/m²", "€/m²"),
         ("current_number_of_sales", "Compraventas", "nº"),
@@ -445,13 +481,13 @@ def render_notarial(notarial_rows: list, props: list):
     for col, (columna, titulo, y_title) in zip(cols_evolucion, metricas_evolucion):
         with col:
             st.caption(titulo)
-            serie = _serie_piso_por_construccion(df, columna)
+            serie = _serie_por_construccion(df, tipos_seleccionados, columna)
             if serie.empty or serie["last_data_update"].nunique() < 2:
                 st.info("Histórico insuficiente (≥2 informes con dato).")
             else:
                 st.plotly_chart(
                     line_chart(serie, x="last_data_update", y=columna,
-                               color="construction_type", y_title=y_title),
+                               color="serie", y_title=y_title),
                     config=PLOTLY_CONFIG, theme="streamlit", use_container_width=True,
                 )
     st.divider()
@@ -463,11 +499,12 @@ def render_notarial(notarial_rows: list, props: list):
         ("current_number_of_sales", "Compraventas"),
         ("current_average_price", "Precio medio"),
     ]
+    latest_sel = latest[latest["property_type"].isin(tipos_seleccionados)]
     cols_barras = st.columns(3)
     for col, (columna, titulo) in zip(cols_barras, metricas_barras):
         with col:
             st.caption(titulo)
-            barras = latest.dropna(subset=[columna])
+            barras = latest_sel.dropna(subset=[columna])
             if barras.empty:
                 st.info("Sin dato oficial todavía.")
             else:
@@ -480,7 +517,7 @@ def render_notarial(notarial_rows: list, props: list):
 
     # ── Tabla comparativa oficial vs mercado, con estado ───────────────
     st.subheader("⚖️ Oficial (Notariado) vs mercado actual — €/m²")
-    display = tabla.copy()
+    display = tabla[tabla["property_type"].isin(tipos_seleccionados)].copy()
     display["combo"] = display.apply(_combo_label, axis=1)
     display["Estado"] = display.apply(
         lambda r: ESTADO_LABEL[ns.estado_comparacion_mercado(r["diferencia"], r["precio_m2_oficial"])],
