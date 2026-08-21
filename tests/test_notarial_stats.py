@@ -9,10 +9,14 @@ import pandas as pd
 
 from ui.notarial_stats import (
     COMBOS,
+    delta_ultimo_periodo,
+    estado_comparacion_mercado,
     has_notarial_data,
     latest_por_combo,
     listing_precio_m2_medio_por_tipo,
     notarial_to_df,
+    serie_mensual,
+    serie_mensual_total,
     serie_temporal,
     tabla_comparativa,
 )
@@ -146,3 +150,128 @@ def test_combos_has_four_fixed_combinations():
         ("casa", "obra_nueva"),
         ("casa", "segunda_mano"),
     ]
+
+
+# ── serie_mensual (genérica, con dropna por métrica) ─────────────────────
+
+def test_serie_mensual_filters_by_combo_sorts_and_drops_nulls():
+    rows = [
+        _row(current_number_of_sales=12, last_data_update=datetime(2026, 3, 1)),
+        _row(current_number_of_sales=None, last_data_update=datetime(2026, 2, 1)),
+        _row(current_number_of_sales=8, last_data_update=datetime(2026, 1, 1)),
+        _row(property_type="casa", current_number_of_sales=99, last_data_update=datetime(2026, 1, 15)),
+    ]
+    df = notarial_to_df(rows)
+    serie = serie_mensual(df, "piso", "obra_nueva", "current_number_of_sales")
+    assert list(serie["current_number_of_sales"]) == [8, 12]
+
+
+def test_serie_mensual_empty_df_returns_empty():
+    assert serie_mensual(pd.DataFrame(), "piso", "obra_nueva", "current_average_price").empty
+
+
+def test_serie_temporal_is_alias_of_serie_mensual_precio_m2():
+    rows = [_row(current_price_per_sqm=2000.0)]
+    df = notarial_to_df(rows)
+    pd.testing.assert_frame_equal(
+        serie_temporal(df, "piso", "obra_nueva").reset_index(drop=True),
+        serie_mensual(df, "piso", "obra_nueva", "current_price_per_sqm").reset_index(drop=True),
+    )
+
+
+# ── serie_mensual_total (agregada entre combos) ───────────────────────────
+
+def test_serie_mensual_total_sums_across_combos_by_month():
+    rows = [
+        _row(property_type="piso", construction_type="obra_nueva",
+             current_number_of_sales=10, last_data_update=datetime(2026, 1, 1)),
+        _row(property_type="piso", construction_type="segunda_mano",
+             current_number_of_sales=5, last_data_update=datetime(2026, 1, 1)),
+        _row(property_type="casa", construction_type="segunda_mano",
+             current_number_of_sales=3, last_data_update=datetime(2026, 2, 1)),
+    ]
+    df = notarial_to_df(rows)
+    total = serie_mensual_total(df, "current_number_of_sales", agg="sum")
+    assert total["current_number_of_sales"].tolist() == [15, 3]
+
+
+def test_serie_mensual_total_mean_aggregation():
+    rows = [
+        _row(property_type="piso", construction_type="obra_nueva",
+             current_price_per_sqm=2000.0, last_data_update=datetime(2026, 1, 1)),
+        _row(property_type="piso", construction_type="segunda_mano",
+             current_price_per_sqm=3000.0, last_data_update=datetime(2026, 1, 1)),
+    ]
+    df = notarial_to_df(rows)
+    total = serie_mensual_total(df, "current_price_per_sqm", agg="mean")
+    assert total["current_price_per_sqm"].tolist() == [2500.0]
+
+
+def test_serie_mensual_total_empty_df_returns_empty():
+    assert serie_mensual_total(pd.DataFrame(), "current_number_of_sales").empty
+
+
+def test_serie_mensual_total_all_null_returns_empty():
+    rows = [_row(current_number_of_sales=None)]
+    df = notarial_to_df(rows)
+    assert serie_mensual_total(df, "current_number_of_sales").empty
+
+
+# ── delta_ultimo_periodo ──────────────────────────────────────────────────
+
+def test_delta_ultimo_periodo_compares_last_two_values():
+    serie = pd.DataFrame({
+        "last_data_update": [datetime(2026, 1, 1), datetime(2026, 2, 1)],
+        "current_number_of_sales": [10, 15],
+    })
+    d = delta_ultimo_periodo(serie, "current_number_of_sales")
+    assert d == {
+        "actual": 15, "anterior": 10, "delta_abs": 5, "delta_pct": 50.0, "direccion": "sube",
+    }
+
+
+def test_delta_ultimo_periodo_baja():
+    serie = pd.DataFrame({
+        "last_data_update": [datetime(2026, 1, 1), datetime(2026, 2, 1)],
+        "current_price_per_sqm": [2000.0, 1800.0],
+    })
+    d = delta_ultimo_periodo(serie, "current_price_per_sqm")
+    assert d["direccion"] == "baja"
+    assert d["delta_abs"] == -200.0
+
+
+def test_delta_ultimo_periodo_single_value_sin_comparacion():
+    serie = pd.DataFrame({
+        "last_data_update": [datetime(2026, 1, 1)],
+        "current_number_of_sales": [10],
+    })
+    d = delta_ultimo_periodo(serie, "current_number_of_sales")
+    assert d["actual"] == 10
+    assert d["anterior"] is None
+    assert d["direccion"] == "sin_comparacion"
+
+
+def test_delta_ultimo_periodo_empty_serie_sin_datos():
+    serie = pd.DataFrame(columns=["last_data_update", "current_number_of_sales"])
+    d = delta_ultimo_periodo(serie, "current_number_of_sales")
+    assert d["direccion"] == "sin_datos"
+    assert d["actual"] is None
+
+
+# ── estado_comparacion_mercado ────────────────────────────────────────────
+
+def test_estado_comparacion_mercado_favorable_cuando_mercado_mas_barato():
+    assert estado_comparacion_mercado(-200.0, 2500.0) == "favorable"
+
+
+def test_estado_comparacion_mercado_desfavorable_cuando_mercado_mas_caro():
+    assert estado_comparacion_mercado(200.0, 2500.0) == "desfavorable"
+
+
+def test_estado_comparacion_mercado_neutral_dentro_del_umbral():
+    assert estado_comparacion_mercado(20.0, 2500.0) == "neutral"
+
+
+def test_estado_comparacion_mercado_sin_datos_cuando_falta_info():
+    assert estado_comparacion_mercado(None, 2500.0) == "sin_datos"
+    assert estado_comparacion_mercado(100.0, None) == "sin_datos"
