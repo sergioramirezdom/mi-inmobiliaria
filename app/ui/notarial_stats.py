@@ -52,6 +52,53 @@ def latest_por_combo(df: pd.DataFrame) -> pd.DataFrame:
     )
 
 
+def es_fila_actual(df: pd.DataFrame) -> pd.Series:
+    """True para filas del endpoint "current" (snapshot acumulado de 12 meses),
+    False para filas mensuales reales del backfill (`historicalData`).
+
+    La API no distingue el tipo de fila en ningún campo dedicado: la única
+    señal fiable es que solo el mapeo de la fila "current" rellena
+    `current_average_area_sqm`/`rate_price_change` — el mapeo mensual del
+    backfill nunca los toca (ver `scripts/fetch_notariado_stats.py`).
+    """
+    if df.empty:
+        return pd.Series([], dtype=bool)
+    return df["current_average_area_sqm"].notna() | df["rate_price_change"].notna()
+
+
+def solo_mensual(df: pd.DataFrame) -> pd.DataFrame:
+    """`df` sin las filas "current" — solo datos mensuales reales del backfill.
+
+    Necesario porque una fila "current" (acumulado 12 meses) puede compartir
+    `last_data_update` con una fila mensual real del mismo mes: sin filtrar,
+    un `groupby("last_data_update").sum()` las sumaría como si fueran dos
+    meses distintos, inflando compraventas/mes.
+    """
+    if df.empty:
+        return df
+    return df[~es_fila_actual(df)].reset_index(drop=True)
+
+
+def fila_actual_por_combo(df: pd.DataFrame) -> pd.DataFrame:
+    """Fila "current" más reciente de cada combo property/construction.
+
+    Es el snapshot oficial vigente (acumulado 12 meses) — la fuente correcta
+    para "último dato" y KPIs, ignorando cualquier fila mensual del backfill
+    que comparta su mismo `last_data_update`.
+    """
+    if df.empty:
+        return df
+    actual = df[es_fila_actual(df)]
+    if actual.empty:
+        return actual
+    return (
+        actual.sort_values("last_data_update")
+        .groupby(["property_type", "construction_type"], as_index=False)
+        .tail(1)
+        .reset_index(drop=True)
+    )
+
+
 def serie_mensual(
     df: pd.DataFrame, property_type: str, construction_type: str, columna: str
 ) -> pd.DataFrame:
@@ -123,6 +170,40 @@ def delta_ultimo_periodo(serie: pd.DataFrame, columna: str) -> dict:
         "actual": actual, "anterior": anterior, "delta_abs": delta_abs,
         "delta_pct": delta_pct, "direccion": direccion,
     }
+
+
+def delta_meses_atras(serie: pd.DataFrame, columna: str, meses_atras: int) -> dict:
+    """Compara el último valor de `columna` con el de exactamente `meses_atras`
+    meses calendario antes (por `last_data_update`, no por posición).
+
+    Si ese mes exacto no tiene fila en `serie` no hay comparación —
+    `comparado`/`delta_abs`/`delta_pct` quedan en `None` en vez de comparar
+    contra el punto más cercano disponible, que sería engañoso.
+    """
+    resultado = {
+        "actual": None, "comparado": None, "delta_abs": None,
+        "delta_pct": None, "direccion": "sin_datos",
+    }
+    if serie.empty:
+        return resultado
+    serie = serie.sort_values("last_data_update")
+    fila_actual = serie.iloc[-1]
+    actual = fila_actual[columna]
+    resultado["actual"] = actual
+    objetivo = fila_actual["last_data_update"] - pd.DateOffset(months=meses_atras)
+    match = serie[serie["last_data_update"] == objetivo]
+    if match.empty:
+        resultado["direccion"] = "sin_comparacion"
+        return resultado
+    comparado = match.iloc[0][columna]
+    delta_abs = actual - comparado
+    delta_pct = round(100 * delta_abs / comparado, 1) if comparado else None
+    direccion = "sube" if delta_abs > 0 else ("baja" if delta_abs < 0 else "igual")
+    resultado.update({
+        "comparado": comparado, "delta_abs": delta_abs,
+        "delta_pct": delta_pct, "direccion": direccion,
+    })
+    return resultado
 
 
 def estado_comparacion_mercado(diferencia, oficial, umbral_pct: float = 3.0) -> str:

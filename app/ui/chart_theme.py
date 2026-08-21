@@ -21,7 +21,7 @@ BASE_LAYOUT = dict(
     paper_bgcolor="rgba(0,0,0,0)",
     plot_bgcolor="rgba(0,0,0,0)",
     separators=",.",  # decimal coma, miles punto (formato español)
-    margin=dict(l=10, r=10, t=30, b=10),
+    margin=dict(l=10, r=28, t=30, b=10),
     hoverlabel=dict(font_size=13),
     legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),
 )
