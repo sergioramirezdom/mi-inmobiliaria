@@ -8,7 +8,7 @@ from sqlalchemy import ARRAY
 # Handle Streamlit reloads: Clean up existing tables from metadata
 # so they can be redefined without "already defined" errors
 try:
-    for _t in ('fuente', 'propiedad', 'filtroalerta', 'preciohistorico', 'registroejecucion'):
+    for _t in ('fuente', 'propiedad', 'filtroalerta', 'preciohistorico', 'registroejecucion', 'estadisticanotarial'):
         if _t in SQLModel.metadata.tables:
             del SQLModel.metadata.tables[_t]
 except Exception:
@@ -162,3 +162,30 @@ class RegistroEjecucion(SQLModel, table=True):
     duplicadas: Optional[int] = None  # scrape only
     duracion_segundos: Optional[float] = None
     run_id: Optional[str] = Field(default=None, index=True)  # UUID4 shared by all rows from one top-level cycle
+
+
+class EstadisticaNotarial(SQLModel, table=True):
+    """Official Consejo General del Notariado market-stats row.
+
+    Append-only historical series, one row per (location_code, property_type,
+    construction_type, last_data_update). property_type/construction_type
+    store the human-readable slug (piso|casa, obra_nueva|segunda_mano), not
+    the numeric API code — the code→slug mapping lives only in
+    scraper/notariado_client.py so the DB stays readable if the vendor
+    renumbers.
+    """
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    location_code: str = Field(index=True)
+    property_type: str = Field(index=True)  # piso | casa
+    construction_type: str = Field(index=True)  # obra_nueva | segunda_mano
+    current_price_per_sqm: Optional[float] = None
+    current_number_of_sales: Optional[int] = None
+    current_average_price: Optional[float] = None
+    current_average_area_sqm: Optional[float] = None
+    rate_price_change: Optional[float] = None
+    last_data_update: datetime = Field(index=True)  # dedup key (combined w/ combo)
+    report_date: datetime
+    raw_json: str  # full response body — no credentials, never redacted
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    

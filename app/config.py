@@ -44,5 +44,13 @@ class Settings:
     def SCRAPER_RETRIES(self) -> int:
         return int(_get("SCRAPER_RETRIES", "2"))
 
+    @property
+    def NOTARIADO_EMAIL(self) -> str:
+        return _get("NOTARIADO_EMAIL", "")
+
+    @property
+    def NOTARIADO_PASSWORD(self) -> str:
+        return _get("NOTARIADO_PASSWORD", "")
+
 
 settings = Settings()

@@ -7,7 +7,14 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from config import settings
-from db.models import Fuente, Propiedad, FiltroAlerta, PrecioHistorico, RegistroEjecucion
+from db.models import (
+    Fuente,
+    Propiedad,
+    FiltroAlerta,
+    PrecioHistorico,
+    RegistroEjecucion,
+    EstadisticaNotarial,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -296,3 +303,52 @@ class RegistroEjecucionCRUD:
         """Get the most recent run-log rows across all fuentes."""
         stmt = select(RegistroEjecucion).order_by(RegistroEjecucion.fecha.desc()).limit(limit)
         return session.exec(stmt).all()
+
+
+# CRUD Helpers for EstadisticaNotarial (append-only historical series)
+class EstadisticaNotarialCRUD:
+    """CRUD operations for EstadisticaNotarial. Rows are append-only — no update/delete."""
+
+    @staticmethod
+    def create(session: Session, estadistica: EstadisticaNotarial) -> EstadisticaNotarial:
+        """Persist one notarial stats row."""
+        session.add(estadistica)
+        session.commit()
+        session.refresh(estadistica)
+        return estadistica
+
+    @staticmethod
+    def get_by_combo(
+        session: Session,
+        location_code: str,
+        property_type: str,
+        construction_type: str,
+    ) -> List[EstadisticaNotarial]:
+        """Get all stored rows for a single (location, property, construction) combo,
+        most recent last_data_update first."""
+        stmt = (
+            select(EstadisticaNotarial)
+            .where(EstadisticaNotarial.location_code == location_code)
+            .where(EstadisticaNotarial.property_type == property_type)
+            .where(EstadisticaNotarial.construction_type == construction_type)
+            .order_by(EstadisticaNotarial.last_data_update.desc())
+        )
+        return session.exec(stmt).all()
+
+    @staticmethod
+    def get_latest_for_combo(
+        session: Session,
+        location_code: str,
+        property_type: str,
+        construction_type: str,
+    ) -> Optional[EstadisticaNotarial]:
+        """Get the most recent stored row for a combo, or None if no rows exist yet."""
+        rows = EstadisticaNotarialCRUD.get_by_combo(
+            session, location_code, property_type, construction_type
+        )
+        return rows[0] if rows else None
+
+    @staticmethod
+    def get_all(session: Session) -> List[EstadisticaNotarial]:
+        """Get all stored rows across every combo."""
+        return session.exec(select(EstadisticaNotarial)).all()
