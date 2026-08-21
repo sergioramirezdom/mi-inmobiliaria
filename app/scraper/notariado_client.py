@@ -73,9 +73,12 @@ def fetch_stats(
         STATS_URL,
         headers={"Authorization": f"Bearer {token}"},
         params={
+            "lang": "es",
             "locationCode": location_code,
+            "locationType": "MN",
             "propertyType": property_type,
             "constructionType": construction_type,
+            "kpi": "pricePerSqm",
         },
         timeout=timeout,
     )

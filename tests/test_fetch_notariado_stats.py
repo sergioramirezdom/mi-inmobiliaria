@@ -59,6 +59,7 @@ def stub_auth(monkeypatch):
 def test_skips_insert_when_last_data_update_unchanged(test_engine, stub_auth, monkeypatch):
     fixture = _load_fixture()
     monkeypatch.setattr(fns, "fetch_stats", lambda *a, **k: fixture)
+    stats = fixture["data"]["statistics"]
 
     with Session(test_engine) as session:
         for property_type, construction_type in COMBOS:
@@ -69,8 +70,8 @@ def test_skips_insert_when_last_data_update_unchanged(test_engine, stub_auth, mo
                     location_code=fns.LOCATION_CODE,
                     property_type=slug_p,
                     construction_type=slug_c,
-                    last_data_update=datetime.fromisoformat(fixture["lastDataUpdate"]),
-                    report_date=datetime.fromisoformat(fixture["reportDate"]),
+                    last_data_update=fns._parse_datetime(stats["lastDataUpdate"]),
+                    report_date=fns._parse_datetime(stats["reportDate"]),
                     raw_json=json.dumps(fixture),
                 )
             )
@@ -115,7 +116,13 @@ def test_inserts_when_last_data_update_changed(test_engine, stub_auth, monkeypat
     assert exit_code == 0
 
 
-def test_backfill_flag_parses_nested_periods(test_engine, stub_auth, monkeypatch):
+def test_backfill_flag_inserts_12month_price_per_sqm_series(
+    test_engine, stub_auth, monkeypatch
+):
+    """--backfill maps `statistics.pricePerSqm.12months.metric[]` (the one
+    bucket with real monthly legends and real values) into one historical
+    row per non-zero month, on top of the current row. The fixture has 3
+    non-zero months: Dic 2025, Ene 2026, Feb 2026."""
     fixture = _load_fixture()
     monkeypatch.setattr(fns, "fetch_stats", lambda *a, **k: fixture)
 
@@ -123,10 +130,34 @@ def test_backfill_flag_parses_nested_periods(test_engine, stub_auth, monkeypatch
 
     with Session(test_engine) as session:
         rows = session.exec(select(EstadisticaNotarial)).all()
-        # Per combo: 1 current row + 2 monthly + 1 quarterly + 1 yearly = 5.
-        assert len(rows) == len(COMBOS) * 5
+        # Per combo: 1 current row + 3 monthly price-per-sqm rows = 4.
+        assert len(rows) == len(COMBOS) * 4
+
+        historical = [r for r in rows if r.current_number_of_sales is None]
+        assert len(historical) == len(COMBOS) * 3
+        months = {r.last_data_update.strftime("%Y-%m") for r in historical}
+        assert months == {"2025-12", "2026-01", "2026-02"}
+        prices = sorted(r.current_price_per_sqm for r in historical[:3])
+        assert prices == sorted([2101.41, 2421.36, 2205.84])
 
     assert exit_code == 0
+
+
+def test_backfill_is_idempotent_for_unchanged_monthly_values(
+    test_engine, stub_auth, monkeypatch
+):
+    """Running --backfill twice with the same fixture must not duplicate
+    the monthly rows — only re-insert a month if its value changed."""
+    fixture = _load_fixture()
+    monkeypatch.setattr(fns, "fetch_stats", lambda *a, **k: fixture)
+
+    fns.main(["--backfill"])
+    fns.main(["--backfill"])
+
+    with Session(test_engine) as session:
+        rows = session.exec(select(EstadisticaNotarial)).all()
+        historical = [r for r in rows if r.current_number_of_sales is None]
+        assert len(historical) == len(COMBOS) * 3
 
 
 def test_run_logs_registro_ejecucion_on_success_and_failure(test_engine, stub_auth, monkeypatch):

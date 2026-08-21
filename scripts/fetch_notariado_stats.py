@@ -15,10 +15,9 @@ inactive sentinel Fuente row to anchor the run log — see
 
 Usage:
     python scripts/fetch_notariado_stats.py              # current data only
-    python scripts/fetch_notariado_stats.py --backfill    # also persist
-                                                            # nested historical
-                                                            # monthly/quarterly/
-                                                            # yearly periods
+    python scripts/fetch_notariado_stats.py --backfill    # also persist the
+                                                            # 12-month price-
+                                                            # per-sqm series
 """
 
 import json
@@ -62,7 +61,10 @@ SENTINEL_FUENTE_NOMBRE = "Notariado (estadísticas oficiales)"
 _SLUG_BY_PROPERTY_CODE = {code: slug for slug, code in PROPERTY_TYPES.items()}
 _SLUG_BY_CONSTRUCTION_CODE = {code: slug for slug, code in CONSTRUCTION_TYPES.items()}
 
-_HISTORICAL_KEYS = ("monthly", "quarterly", "yearly")
+_SPANISH_MONTHS = {
+    "ene": 1, "feb": 2, "mar": 3, "abr": 4, "may": 5, "jun": 6,
+    "jul": 7, "ago": 8, "sep": 9, "oct": 10, "nov": 11, "dic": 12,
+}
 
 
 def _get_or_create_sentinel_fuente(session: Session) -> Fuente:
@@ -84,56 +86,108 @@ def _get_or_create_sentinel_fuente(session: Session) -> Fuente:
 
 
 def _parse_datetime(value) -> datetime:
+    """Parse to a naive UTC datetime. `EstadisticaNotarial.last_data_update`
+    has no `timezone=True`, so SQLite silently drops tzinfo on read-back —
+    an aware value here would never equal the same instant read back from
+    the DB, breaking dedup. Stripping tzinfo up front keeps both sides
+    naive and comparable."""
     if isinstance(value, datetime):
-        return value
-    return datetime.fromisoformat(value)
+        return value.replace(tzinfo=None)
+    parsed = datetime.fromisoformat(value)
+    return parsed.replace(tzinfo=None)
 
 
 def _map_current_row(
     response: dict, property_type_code: int, construction_type_code: int
 ) -> EstadisticaNotarial:
+    """Map the live response shape (verified 2026-08-21): everything lives
+    under `data.statistics`, not the response's top level as originally
+    assumed. `ratePriceChange` is itself `{"value": ..., "metric": [...]}`,
+    not a bare float."""
+    stats = response["data"]["statistics"]
+    rate_change = stats.get("ratePriceChange")
+    rate_change_value = (
+        rate_change.get("value") if isinstance(rate_change, dict) else rate_change
+    )
     return EstadisticaNotarial(
         location_code=LOCATION_CODE,
         property_type=_SLUG_BY_PROPERTY_CODE[property_type_code],
         construction_type=_SLUG_BY_CONSTRUCTION_CODE[construction_type_code],
-        current_price_per_sqm=response.get("currentPricePerSqm"),
-        current_number_of_sales=response.get("currentNumberOfSales"),
-        current_average_price=response.get("currentAveragePrice"),
-        current_average_area_sqm=response.get("currentAverageAreaSqm"),
-        rate_price_change=response.get("ratePriceChange"),
-        last_data_update=_parse_datetime(response["lastDataUpdate"]),
-        report_date=_parse_datetime(response["reportDate"]),
+        current_price_per_sqm=stats.get("currentPricePerSqm"),
+        current_number_of_sales=stats.get("currentNumberOfSales"),
+        current_average_price=stats.get("currentAveragePrice"),
+        current_average_area_sqm=stats.get("currentAverageAreaSqm"),
+        rate_price_change=rate_change_value,
+        last_data_update=_parse_datetime(stats["lastDataUpdate"]),
+        report_date=_parse_datetime(stats["reportDate"]),
         raw_json=json.dumps(response),
     )
 
 
-def _map_historical_period(
-    period: dict, property_type_code: int, construction_type_code: int
-) -> EstadisticaNotarial:
-    return EstadisticaNotarial(
-        location_code=LOCATION_CODE,
-        property_type=_SLUG_BY_PROPERTY_CODE[property_type_code],
-        construction_type=_SLUG_BY_CONSTRUCTION_CODE[construction_type_code],
-        current_price_per_sqm=period.get("pricePerSqm"),
-        current_number_of_sales=period.get("numberOfSales"),
-        current_average_price=period.get("averagePrice"),
-        current_average_area_sqm=period.get("averageAreaSqm"),
-        rate_price_change=period.get("rateChange"),
-        last_data_update=_parse_datetime(period["dataUpdate"]),
-        report_date=_parse_datetime(period["reportDate"]),
-        raw_json=json.dumps(period),
-    )
+def _parse_month_legend(legend: str) -> Optional[datetime]:
+    """Parse a Spanish month legend like "Dic 2025" into its first-of-month
+    datetime. Returns None for anything else (quarter ranges like "Jul-Sep
+    2024", bare years like "2025") — those buckets aren't backfilled yet."""
+    parts = legend.strip().split()
+    if len(parts) != 2:
+        return None
+    month_abbr, year = parts[0].lower()[:3], parts[1]
+    month = _SPANISH_MONTHS.get(month_abbr)
+    if month is None or not year.isdigit():
+        return None
+    return datetime(int(year), month, 1)
 
 
-def _historical_periods(response: dict) -> list:
-    """Flatten the response's nested monthly/quarterly/yearly period arrays,
-    if present, into a single list. No separate endpoint call — the standard
-    response already carries them."""
-    historical = response.get("historicalData") or {}
-    periods = []
-    for key in _HISTORICAL_KEYS:
-        periods.extend(historical.get(key) or [])
-    return periods
+def _historical_periods(
+    response: dict, property_type_code: int, construction_type_code: int
+) -> list:
+    """Map `statistics.pricePerSqm.12months.metric[]` — the one bucket with
+    real monthly legends and real values — into one row per non-zero month.
+
+    The design originally assumed a flat `historicalData.monthly/quarterly/
+    yearly` list of full period records; the real response has no such
+    thing. It exposes per-metric time-bucket series (`pricePerSqm` /
+    `numberOfSales` / `averagePrice`, each split into `12months` / `2years`
+    / `5years` / `12years`), keyed by a locale legend string with no real
+    timestamp. Only the `12months` price-per-sqm bucket is mapped here —
+    it's the one with real (non-estimated) monthly values in practice. The
+    quarter/year buckets need their own design pass (legend parsing across
+    "Jul-Sep 2024"-style ranges and bare years) before being backfilled;
+    `raw_json` on the current row preserves the full nested series either
+    way, so nothing is lost by deferring them.
+
+    A month with `value == 0` means the notary hasn't reported real sales
+    for it yet (only a trend `estimation`) — those are skipped rather than
+    stored as a misleading zero price point.
+    """
+    stats = response.get("data", {}).get("statistics", {})
+    metric = stats.get("pricePerSqm", {}).get("12months", {}).get("metric", [])
+    report_date = _parse_datetime(stats["reportDate"]) if stats.get("reportDate") else None
+
+    rows = []
+    for entry in metric:
+        value = entry.get("value")
+        if not value:
+            continue
+        month_date = _parse_month_legend(entry.get("legend", ""))
+        if month_date is None:
+            logger.warning(
+                "⚠️ Could not parse month legend %r for combo (%s,%s) — skipped.",
+                entry.get("legend"), property_type_code, construction_type_code,
+            )
+            continue
+        rows.append(
+            EstadisticaNotarial(
+                location_code=LOCATION_CODE,
+                property_type=_SLUG_BY_PROPERTY_CODE[property_type_code],
+                construction_type=_SLUG_BY_CONSTRUCTION_CODE[construction_type_code],
+                current_price_per_sqm=value,
+                last_data_update=month_date,
+                report_date=report_date or month_date,
+                raw_json=json.dumps(entry),
+            )
+        )
+    return rows
 
 
 def ingest_combo(
@@ -145,7 +199,8 @@ def ingest_combo(
     backfill: bool,
 ) -> int:
     """Fetch one combo, dedup-insert the current row, and (if --backfill)
-    insert every nested historical period. Returns the number of rows
+    insert one row per non-zero month in the 12-month price-per-sqm series
+    not already stored with the same value. Returns the number of rows
     inserted."""
     response = fetch_stats(
         token, LOCATION_CODE, property_type_code, construction_type_code
@@ -165,10 +220,17 @@ def ingest_combo(
         inserted += 1
 
     if backfill:
-        for period in _historical_periods(response):
-            row = _map_historical_period(
-                period, property_type_code, construction_type_code
+        existing = {
+            (row.last_data_update, row.current_price_per_sqm)
+            for row in EstadisticaNotarialCRUD.get_by_combo(
+                session, LOCATION_CODE, slug_property, slug_construction
             )
+        }
+        for row in _historical_periods(
+            response, property_type_code, construction_type_code
+        ):
+            if (row.last_data_update, row.current_price_per_sqm) in existing:
+                continue
             EstadisticaNotarialCRUD.create(session, row)
             inserted += 1
 

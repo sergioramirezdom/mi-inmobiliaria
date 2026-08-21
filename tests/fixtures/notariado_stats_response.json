@@ -1,53 +1,63 @@
 {
-  "currentPricePerSqm": 1520.75,
-  "currentNumberOfSales": 46,
-  "currentAveragePrice": 214500.0,
-  "currentAverageAreaSqm": 88.2,
-  "ratePriceChange": 1.9,
-  "lastDataUpdate": "2026-06-30T00:00:00",
-  "reportDate": "2026-07-15T00:00:00",
-  "historicalData": {
-    "monthly": [
-      {
-        "pricePerSqm": 1498.2,
-        "numberOfSales": 41,
-        "averagePrice": 209000.0,
-        "averageAreaSqm": 87.5,
-        "rateChange": 1.4,
-        "dataUpdate": "2026-05-31T00:00:00",
-        "reportDate": "2026-06-15T00:00:00"
+  "data": {
+    "statistics": {
+      "locationName": "Puerto de Santa María, El",
+      "reportDate": "2026-08-21T09:18:49.914Z",
+      "lastDataUpdate": "2026-05-01T07:00:00.000Z",
+      "typeOfProperty": "Pisos",
+      "constructionType": "Vivienda nueva",
+      "locationType": "MN",
+      "currentPricePerSqm": 2145.61,
+      "currentNumberOfSales": 69,
+      "currentAveragePrice": 166157.79,
+      "currentAverageAreaSqm": 77.44,
+      "pricePerSqm": {
+        "12months": {
+          "value": 2145.61,
+          "metric": [
+            {"legend": "Dic 2025", "value": 2101.41, "estimation": 2101.41},
+            {"legend": "Ene 2026", "value": 2421.36, "estimation": 2421.36},
+            {"legend": "Feb 2026", "value": 2205.84, "estimation": 2205.84}
+          ]
+        },
+        "5years": {
+          "value": 2270.37,
+          "metric": [
+            {"legend": "2024", "value": 2783.11},
+            {"legend": "2025", "value": 2118.67},
+            {"legend": "2026", "value": 2317.2}
+          ]
+        }
       },
-      {
-        "pricePerSqm": 1475.0,
-        "numberOfSales": 38,
-        "averagePrice": 205500.0,
-        "averageAreaSqm": 86.9,
-        "rateChange": 0.8,
-        "dataUpdate": "2026-04-30T00:00:00",
-        "reportDate": "2026-05-15T00:00:00"
+      "numberOfSales": {
+        "12months": {
+          "value": 69,
+          "metric": [
+            {"legend": "Dic 2025", "value": 35},
+            {"legend": "Ene 2026", "value": 9},
+            {"legend": "Feb 2026", "value": 11}
+          ]
+        }
+      },
+      "averagePrice": {
+        "12months": {
+          "value": 166157.79,
+          "metric": [
+            {"legend": "Dic 2025", "value": 162190.96},
+            {"legend": "Ene 2026", "value": 189773.93},
+            {"legend": "Feb 2026", "value": 170830.32}
+          ]
+        }
+      },
+      "ratePriceChange": {
+        "value": -0.15897855015493226,
+        "metric": [
+          {"legend": "2024", "value": 0.23564653329781235},
+          {"legend": "2025", "value": -0.15897855015493226}
+        ]
       }
-    ],
-    "quarterly": [
-      {
-        "pricePerSqm": 1460.3,
-        "numberOfSales": 120,
-        "averagePrice": 203000.0,
-        "averageAreaSqm": 86.1,
-        "rateChange": 2.2,
-        "dataUpdate": "2026-03-31T00:00:00",
-        "reportDate": "2026-04-15T00:00:00"
-      }
-    ],
-    "yearly": [
-      {
-        "pricePerSqm": 1390.0,
-        "numberOfSales": 480,
-        "averagePrice": 195000.0,
-        "averageAreaSqm": 85.0,
-        "rateChange": 3.1,
-        "dataUpdate": "2025-12-31T00:00:00",
-        "reportDate": "2026-01-15T00:00:00"
-      }
-    ]
+    },
+    "numberMonthlyQueries": 38,
+    "numberExtraQueries": 0
   }
 }
