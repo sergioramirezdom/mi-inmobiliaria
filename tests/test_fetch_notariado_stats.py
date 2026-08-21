@@ -116,11 +116,9 @@ def test_inserts_when_last_data_update_changed(test_engine, stub_auth, monkeypat
     assert exit_code == 0
 
 
-def test_backfill_flag_inserts_12month_price_per_sqm_series(
-    test_engine, stub_auth, monkeypatch
-):
-    """--backfill maps `statistics.pricePerSqm.12months.metric[]` (the one
-    bucket with real monthly legends and real values) into one historical
+def test_backfill_flag_inserts_12month_series(test_engine, stub_auth, monkeypatch):
+    """--backfill maps the 12-month price-per-sqm, number-of-sales, and
+    average-price series together (matched by legend) into one historical
     row per non-zero month, on top of the current row. The fixture has 3
     non-zero months: Dic 2025, Ene 2026, Feb 2026."""
     fixture = _load_fixture()
@@ -130,15 +128,23 @@ def test_backfill_flag_inserts_12month_price_per_sqm_series(
 
     with Session(test_engine) as session:
         rows = session.exec(select(EstadisticaNotarial)).all()
-        # Per combo: 1 current row + 3 monthly price-per-sqm rows = 4.
+        # Per combo: 1 current row + 3 monthly rows = 4.
         assert len(rows) == len(COMBOS) * 4
 
-        historical = [r for r in rows if r.current_number_of_sales is None]
+        # Current row is the only one dated 2026-05 (the fixture's
+        # lastDataUpdate); everything else is a backfilled month.
+        historical = [
+            r for r in rows if r.last_data_update.strftime("%Y-%m") != "2026-05"
+        ]
         assert len(historical) == len(COMBOS) * 3
         months = {r.last_data_update.strftime("%Y-%m") for r in historical}
         assert months == {"2025-12", "2026-01", "2026-02"}
-        prices = sorted(r.current_price_per_sqm for r in historical[:3])
-        assert prices == sorted([2101.41, 2421.36, 2205.84])
+
+        by_month = {r.last_data_update.strftime("%Y-%m"): r for r in historical[:3]}
+        dec = by_month["2025-12"]
+        assert dec.current_price_per_sqm == 2101.41
+        assert dec.current_number_of_sales == 35
+        assert dec.current_average_price == 162190.96
 
     assert exit_code == 0
 
@@ -156,7 +162,9 @@ def test_backfill_is_idempotent_for_unchanged_monthly_values(
 
     with Session(test_engine) as session:
         rows = session.exec(select(EstadisticaNotarial)).all()
-        historical = [r for r in rows if r.current_number_of_sales is None]
+        historical = [
+            r for r in rows if r.last_data_update.strftime("%Y-%m") != "2026-05"
+        ]
         assert len(historical) == len(COMBOS) * 3
 
 

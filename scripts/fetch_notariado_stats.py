@@ -138,42 +138,51 @@ def _parse_month_legend(legend: str) -> Optional[datetime]:
     return datetime(int(year), month, 1)
 
 
+def _12month_metric_by_legend(stats: dict, metric_name: str) -> dict:
+    """Return {legend: entry} for one metric's 12months bucket."""
+    metric = stats.get(metric_name, {}).get("12months", {}).get("metric", [])
+    return {entry.get("legend"): entry for entry in metric if entry.get("legend")}
+
+
 def _historical_periods(
     response: dict, property_type_code: int, construction_type_code: int
 ) -> list:
-    """Map `statistics.pricePerSqm.12months.metric[]` — the one bucket with
-    real monthly legends and real values — into one row per non-zero month.
+    """Map the 12-month price-per-sqm, number-of-sales, and average-price
+    series together (matched by legend, e.g. "Dic 2025") into one row per
+    non-zero month.
 
     The design originally assumed a flat `historicalData.monthly/quarterly/
     yearly` list of full period records; the real response has no such
     thing. It exposes per-metric time-bucket series (`pricePerSqm` /
     `numberOfSales` / `averagePrice`, each split into `12months` / `2years`
     / `5years` / `12years`), keyed by a locale legend string with no real
-    timestamp. Only the `12months` price-per-sqm bucket is mapped here —
-    it's the one with real (non-estimated) monthly values in practice. The
-    quarter/year buckets need their own design pass (legend parsing across
+    timestamp. Only the `12months` buckets are mapped here — they're the
+    ones with real (non-estimated) monthly values in practice. The quarter/
+    year buckets need their own design pass (legend parsing across
     "Jul-Sep 2024"-style ranges and bare years) before being backfilled;
     `raw_json` on the current row preserves the full nested series either
     way, so nothing is lost by deferring them.
 
-    A month with `value == 0` means the notary hasn't reported real sales
-    for it yet (only a trend `estimation`) — those are skipped rather than
-    stored as a misleading zero price point.
+    A month with `pricePerSqm.value == 0` means the notary hasn't reported
+    real sales for it yet (only a trend `estimation`) — those are skipped
+    rather than stored as a misleading zero price point.
     """
     stats = response.get("data", {}).get("statistics", {})
-    metric = stats.get("pricePerSqm", {}).get("12months", {}).get("metric", [])
+    price_by_legend = _12month_metric_by_legend(stats, "pricePerSqm")
+    sales_by_legend = _12month_metric_by_legend(stats, "numberOfSales")
+    avg_price_by_legend = _12month_metric_by_legend(stats, "averagePrice")
     report_date = _parse_datetime(stats["reportDate"]) if stats.get("reportDate") else None
 
     rows = []
-    for entry in metric:
-        value = entry.get("value")
+    for legend, price_entry in price_by_legend.items():
+        value = price_entry.get("value")
         if not value:
             continue
-        month_date = _parse_month_legend(entry.get("legend", ""))
+        month_date = _parse_month_legend(legend)
         if month_date is None:
             logger.warning(
                 "⚠️ Could not parse month legend %r for combo (%s,%s) — skipped.",
-                entry.get("legend"), property_type_code, construction_type_code,
+                legend, property_type_code, construction_type_code,
             )
             continue
         rows.append(
@@ -182,9 +191,18 @@ def _historical_periods(
                 property_type=_SLUG_BY_PROPERTY_CODE[property_type_code],
                 construction_type=_SLUG_BY_CONSTRUCTION_CODE[construction_type_code],
                 current_price_per_sqm=value,
+                current_number_of_sales=sales_by_legend.get(legend, {}).get("value"),
+                current_average_price=avg_price_by_legend.get(legend, {}).get("value"),
                 last_data_update=month_date,
                 report_date=report_date or month_date,
-                raw_json=json.dumps(entry),
+                raw_json=json.dumps(
+                    {
+                        "legend": legend,
+                        "pricePerSqm": price_entry,
+                        "numberOfSales": sales_by_legend.get(legend),
+                        "averagePrice": avg_price_by_legend.get(legend),
+                    }
+                ),
             )
         )
     return rows
@@ -220,8 +238,16 @@ def ingest_combo(
         inserted += 1
 
     if backfill:
+        def _dedup_key(row: EstadisticaNotarial) -> tuple:
+            return (
+                row.last_data_update,
+                row.current_price_per_sqm,
+                row.current_number_of_sales,
+                row.current_average_price,
+            )
+
         existing = {
-            (row.last_data_update, row.current_price_per_sqm)
+            _dedup_key(row)
             for row in EstadisticaNotarialCRUD.get_by_combo(
                 session, LOCATION_CODE, slug_property, slug_construction
             )
@@ -229,7 +255,7 @@ def ingest_combo(
         for row in _historical_periods(
             response, property_type_code, construction_type_code
         ):
-            if (row.last_data_update, row.current_price_per_sqm) in existing:
+            if _dedup_key(row) in existing:
                 continue
             EstadisticaNotarialCRUD.create(session, row)
             inserted += 1
