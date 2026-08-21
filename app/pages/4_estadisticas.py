@@ -10,15 +10,19 @@ from sqlmodel import Session, select
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from db.database import engine, PropiedadCRUD
+from db.database import engine, EstadisticaNotarialCRUD, PropiedadCRUD
 from db.models import Propiedad, PrecioHistorico
 from ui import market_stats as ms
+from ui import notarial_stats as ns
 from ui import offer_advisor as oa
 from ui.chart_theme import PLOTLY_CONFIG, bar_chart, line_chart, offer_range_chart
 
 st.set_page_config(page_title="Mercado", page_icon="📊", layout="wide")
 
-TABS = {"pulso": "📈 Pulso", "zonas": "🗺️ Zonas", "ofertas": "🎯 Ofertas"}
+TABS = {
+    "pulso": "📈 Pulso", "zonas": "🗺️ Zonas", "ofertas": "🎯 Ofertas",
+    "notarial": "🏛️ Notarial",
+}
 MAX_BARRIOS_GRAFICO = 8  # límite de la paleta categórica — nunca ciclar colores
 _MESES_ABREV = {1: "ene", 2: "feb", 3: "mar", 4: "abr", 5: "may", 6: "jun",
                7: "jul", 8: "ago", 9: "sep", 10: "oct", 11: "nov", 12: "dic"}
@@ -50,9 +54,26 @@ def fetch_hist() -> list[dict]:
                 for h in rows]
 
 
+@st.cache_data(ttl=300, show_spinner=False)
+def fetch_notarial() -> list[dict]:
+    with Session(engine) as session:
+        rows = EstadisticaNotarialCRUD.get_all(session)
+        return [{
+            "location_code": r.location_code, "property_type": r.property_type,
+            "construction_type": r.construction_type,
+            "current_price_per_sqm": r.current_price_per_sqm,
+            "current_number_of_sales": r.current_number_of_sales,
+            "current_average_price": r.current_average_price,
+            "current_average_area_sqm": r.current_average_area_sqm,
+            "rate_price_change": r.rate_price_change,
+            "last_data_update": r.last_data_update, "report_date": r.report_date,
+        } for r in rows]
+
+
 def clear_caches():
     fetch_props.clear()
     fetch_hist.clear()
+    fetch_notarial.clear()
 
 
 def eur(v) -> str:
@@ -309,6 +330,69 @@ def render_ofertas(props: list, now):
     )
 
 
+# ── Pestaña Notarial ──────────────────────────────────────────────────
+
+def render_notarial(notarial_rows: list, props: list):
+    if not ns.has_notarial_data(notarial_rows):
+        st.info(
+            "📭 Todavía no hay estadísticas notariales oficiales almacenadas. "
+            "Se cargan semanalmente vía `scripts/fetch_notariado_stats.py`."
+        )
+        return
+
+    df = ns.notarial_to_df(notarial_rows)
+    latest = ns.latest_por_combo(df)
+    listing_por_tipo = ns.listing_precio_m2_medio_por_tipo(props)
+    tabla = ns.tabla_comparativa(latest, listing_por_tipo)
+
+    st.subheader("Oficial (Notariado) vs mercado actual — €/m²")
+    display = tabla.copy()
+    display["combo"] = display.apply(
+        lambda r: ns.COMBO_LABELS.get((r["property_type"], r["construction_type"]),
+                                       f"{r['property_type']} · {r['construction_type']}"),
+        axis=1,
+    )
+    for col in ("precio_m2_oficial", "precio_m2_mercado", "diferencia"):
+        display[col] = display[col].map(lambda v: eur(v) if v is not None and pd.notna(v) else "—")
+    display = display[["combo", "precio_m2_oficial", "precio_m2_mercado", "diferencia"]]
+    display.columns = ["Tipo", "€/m² oficial (Notariado)", "€/m² mercado (activas)", "Diferencia"]
+    st.dataframe(display, use_container_width=True, hide_index=True)
+    st.caption(
+        "Diferencia = €/m² medio de tus fuentes activas − €/m² oficial del último informe "
+        "notarial disponible (a nivel municipio). Positivo = tus fuentes están por encima "
+        "del precio notarial."
+    )
+    st.divider()
+
+    st.subheader("€/m² oficial (Notariado) — barras por tipo")
+    barras = tabla.dropna(subset=["precio_m2_oficial"])
+    if barras.empty:
+        st.info("Sin precio oficial disponible todavía.")
+    else:
+        etiquetas = barras.apply(
+            lambda r: ns.COMBO_LABELS.get((r["property_type"], r["construction_type"]),
+                                           f"{r['property_type']} · {r['construction_type']}"),
+            axis=1,
+        )
+        st.plotly_chart(
+            bar_chart(etiquetas, barras["precio_m2_oficial"], "€/m² oficial"),
+            config=PLOTLY_CONFIG, theme="streamlit", use_container_width=True,
+        )
+
+    st.subheader("Evolución histórica — piso")
+    for tipo_construccion in ("obra_nueva", "segunda_mano"):
+        serie = ns.serie_temporal(df, "piso", tipo_construccion)
+        if len(serie) < 2:
+            continue
+        st.caption(ns.COMBO_LABELS[("piso", tipo_construccion)])
+        st.plotly_chart(
+            line_chart(serie, x="last_data_update", y="current_price_per_sqm", y_title="€/m²"),
+            config=PLOTLY_CONFIG, theme="streamlit", use_container_width=True,
+        )
+    if all(len(ns.serie_temporal(df, "piso", tc)) < 2 for tc in ("obra_nueva", "segunda_mano")):
+        st.info("Aún no hay suficiente histórico para una serie temporal (se necesitan ≥2 informes).")
+
+
 # ── Página ────────────────────────────────────────────────────────────
 
 try:
@@ -322,21 +406,23 @@ try:
     ) or "pulso"
 
     props = fetch_props()
-    hist = fetch_hist()
-    if not props:
+
+    if tab == "notarial":
+        render_notarial(fetch_notarial(), props)
+    elif not props:
         st.warning("No hay propiedades en la base de datos.")
-        st.stop()
-
-    df = ms.props_to_df(props)
-    hist_df = ms.hist_to_df(hist)
-    now = datetime.now(UTC).replace(tzinfo=None)
-
-    if tab == "pulso":
-        render_pulso(df, hist_df, now)
-    elif tab == "zonas":
-        render_zonas(df, hist_df, now)
     else:
-        render_ofertas(props, now)
+        hist = fetch_hist()
+        df = ms.props_to_df(props)
+        hist_df = ms.hist_to_df(hist)
+        now = datetime.now(UTC).replace(tzinfo=None)
+
+        if tab == "pulso":
+            render_pulso(df, hist_df, now)
+        elif tab == "zonas":
+            render_zonas(df, hist_df, now)
+        else:
+            render_ofertas(props, now)
 
 except Exception as e:
     st.error(f"❌ Error: {e}")
