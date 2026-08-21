@@ -11,11 +11,13 @@ import respx
 from scraper.notariado_client import (
     SSO_TOKEN_URL,
     STATS_URL,
+    USERS_URL,
     CLIENT_ID,
     COMBOS,
     LOCATION_CODE,
     login,
     fetch_stats,
+    fetch_quota,
     NotariadoAuthError,
 )
 
@@ -87,3 +89,30 @@ def test_fetch_stats_sends_bearer_and_query_params():
             "propertyType": str(property_type),
             "constructionType": str(construction_type),
         }
+
+
+@respx.mock
+def test_fetch_quota_sends_bearer_and_returns_data_block():
+    route = respx.get(USERS_URL).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "data": {
+                    "email": "user@example.com",
+                    "numberMonthlyQueries": 48,
+                    "numberExtraQueries": 0,
+                }
+            },
+        )
+    )
+
+    quota = fetch_quota("fake-token")
+
+    assert route.called
+    request = route.calls.last.request
+    assert request.headers["Authorization"] == "Bearer fake-token"
+    assert quota == {
+        "email": "user@example.com",
+        "numberMonthlyQueries": 48,
+        "numberExtraQueries": 0,
+    }
