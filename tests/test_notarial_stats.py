@@ -9,8 +9,11 @@ import pandas as pd
 
 from ui.notarial_stats import (
     COMBOS,
+    delta_meses_atras,
     delta_ultimo_periodo,
+    es_fila_actual,
     estado_comparacion_mercado,
+    fila_actual_por_combo,
     has_notarial_data,
     latest_por_combo,
     listing_precio_m2_medio_por_tipo,
@@ -18,6 +21,7 @@ from ui.notarial_stats import (
     serie_mensual,
     serie_mensual_total,
     serie_temporal,
+    solo_mensual,
     tabla_comparativa,
 )
 
@@ -275,3 +279,107 @@ def test_estado_comparacion_mercado_neutral_dentro_del_umbral():
 def test_estado_comparacion_mercado_sin_datos_cuando_falta_info():
     assert estado_comparacion_mercado(None, 2500.0) == "sin_datos"
     assert estado_comparacion_mercado(100.0, None) == "sin_datos"
+
+
+# ── es_fila_actual / solo_mensual / fila_actual_por_combo ─────────────────
+#
+# La API devuelve una fila "actual" (currentPricePerSqm/currentNumberOf
+# Sales/...) que es un acumulado móvil de 12 meses, no el dato de un mes
+# suelto — y puede compartir last_data_update con una fila mensual real del
+# backfill. Solo la fila actual trae current_average_area_sqm/rate_price_
+# change (el mapeo del backfill mensual nunca los rellena); es la única
+# forma fiable de distinguirlas sin cambiar el esquema.
+
+def test_es_fila_actual_true_solo_para_snapshot_con_area_o_tasa():
+    rows = [
+        _row(current_average_area_sqm=77.44, rate_price_change=-0.15),
+        _row(current_average_area_sqm=None, rate_price_change=None, current_number_of_sales=0),
+        _row(current_average_area_sqm=None, rate_price_change=-0.1, current_number_of_sales=1),
+    ]
+    df = notarial_to_df(rows)
+    assert es_fila_actual(df).tolist() == [True, False, True]
+
+
+def test_es_fila_actual_df_vacio():
+    df = notarial_to_df([])
+    assert es_fila_actual(df).tolist() == []
+
+
+def test_solo_mensual_excluye_fila_actual_incluso_con_mismo_mes():
+    rows = [
+        _row(
+            last_data_update=datetime(2026, 5, 1),
+            current_average_area_sqm=77.44, rate_price_change=-0.15,
+            current_number_of_sales=69,
+        ),
+        _row(
+            last_data_update=datetime(2026, 5, 1),
+            current_average_area_sqm=None, rate_price_change=None,
+            current_number_of_sales=0,
+        ),
+        _row(
+            last_data_update=datetime(2026, 4, 1),
+            current_average_area_sqm=None, rate_price_change=None,
+            current_number_of_sales=2,
+        ),
+    ]
+    df = notarial_to_df(rows)
+    mensual = solo_mensual(df)
+    assert len(mensual) == 2
+    assert mensual["current_average_area_sqm"].isna().all()
+    assert sorted(mensual["current_number_of_sales"].tolist()) == [0, 2]
+
+
+def test_fila_actual_por_combo_ignora_filas_mensuales_del_backfill():
+    rows = [
+        _row(
+            last_data_update=datetime(2026, 5, 1),
+            current_price_per_sqm=2145.61, current_average_area_sqm=77.44,
+            rate_price_change=-0.15,
+        ),
+        _row(
+            last_data_update=datetime(2026, 4, 1),
+            current_price_per_sqm=2100.0, current_average_area_sqm=76.0,
+            rate_price_change=-0.10,
+        ),
+        _row(
+            last_data_update=datetime(2026, 5, 1),
+            current_price_per_sqm=None, current_average_area_sqm=None,
+            rate_price_change=None, current_number_of_sales=0,
+        ),
+    ]
+    df = notarial_to_df(rows)
+    actual = fila_actual_por_combo(df)
+    assert len(actual) == 1
+    assert actual.iloc[0]["current_price_per_sqm"] == 2145.61
+
+
+# ── delta_meses_atras ──────────────────────────────────────────────────
+
+def test_delta_meses_atras_compara_con_el_mes_calendario_correcto():
+    serie = pd.DataFrame({
+        "last_data_update": pd.to_datetime(["2025-12-01", "2026-01-01", "2026-02-01"]),
+        "current_price_per_sqm": [2101.41, 2421.36, 2205.84],
+    })
+    d = delta_meses_atras(serie, "current_price_per_sqm", 1)
+    assert d["actual"] == 2205.84
+    assert d["comparado"] == 2421.36
+    assert d["delta_pct"] == round(100 * (2205.84 - 2421.36) / 2421.36, 1)
+
+
+def test_delta_meses_atras_none_cuando_el_mes_no_esta_en_la_serie():
+    serie = pd.DataFrame({
+        "last_data_update": pd.to_datetime(["2026-02-01"]),
+        "current_price_per_sqm": [2205.84],
+    })
+    d = delta_meses_atras(serie, "current_price_per_sqm", 3)
+    assert d["actual"] == 2205.84
+    assert d["comparado"] is None
+    assert d["delta_pct"] is None
+
+
+def test_delta_meses_atras_serie_vacia():
+    serie = pd.DataFrame(columns=["last_data_update", "current_price_per_sqm"])
+    d = delta_meses_atras(serie, "current_price_per_sqm", 6)
+    assert d["actual"] is None
+    assert d["comparado"] is None

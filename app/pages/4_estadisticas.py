@@ -16,6 +16,7 @@ from ui import market_stats as ms
 from ui import notarial_stats as ns
 from ui import offer_advisor as oa
 from ui.chart_theme import PLOTLY_CONFIG, bar_chart, line_chart, offer_range_chart
+from ui.theme import COLORS, inject_theme
 
 st.set_page_config(page_title="Mercado", page_icon="📊", layout="wide")
 
@@ -353,6 +354,17 @@ _CONSTRUCCION_LABEL = {"obra_nueva": "Obra nueva", "segunda_mano": "Segunda mano
 TIPO_VIVIENDA_OPTIONS = {"piso": "🏢 Pisos", "casa": "🏡 Casas", "ambos": "🏘️ Pisos y casas"}
 TIPO_VIVIENDA_ETIQUETA = {"piso": "piso", "casa": "casa", "ambos": "piso y casa"}
 
+_MESES_FULL = {
+    1: "enero", 2: "febrero", 3: "marzo", 4: "abril", 5: "mayo", 6: "junio",
+    7: "julio", 8: "agosto", 9: "septiembre", 10: "octubre", 11: "noviembre", 12: "diciembre",
+}
+
+
+def _mes_es(ts) -> str:
+    if ts is None or pd.isna(ts):
+        return "N/D"
+    return f"{_MESES_FULL[ts.month].capitalize()} {ts.year}"
+
 
 def n_(v) -> str:
     return f"{v:,.0f}".replace(",", ".") if v is not None and pd.notna(v) else "N/D"
@@ -405,10 +417,18 @@ def render_notarial(notarial_rows: list, props: list):
         )
         return
 
+    inject_theme()
+
     df = ns.notarial_to_df(notarial_rows)
     latest = ns.latest_por_combo(df)
     listing_por_tipo = ns.listing_precio_m2_medio_por_tipo(props)
     tabla = ns.tabla_comparativa(latest, listing_por_tipo)
+
+    # `df` mezcla filas mensuales reales (backfill) con la fila "current" de
+    # cada combo — un acumulado móvil de 12 meses, no el dato de un mes suelto.
+    # El resumen del mercado (KPIs mensuales + comparativas históricas) debe
+    # calcularse solo sobre `mensual_df`, o mezclaría ambas semánticas.
+    mensual_df = ns.solo_mensual(df)
 
     tipo_sel = st.segmented_control(
         "Tipo de vivienda",
@@ -420,17 +440,17 @@ def render_notarial(notarial_rows: list, props: list):
     tipos_seleccionados = ["piso", "casa"] if tipo_sel == "ambos" else [tipo_sel]
     etiqueta_tipo = TIPO_VIVIENDA_ETIQUETA[tipo_sel]
     tipo_df = df[df["property_type"].isin(tipos_seleccionados)]
+    tipo_mensual = mensual_df[mensual_df["property_type"].isin(tipos_seleccionados)]
 
-    # ── KPIs (mes más reciente con dato vs el anterior) ────────────────
-    d_ventas = ns.delta_ultimo_periodo(
-        ns.serie_mensual_total(df, "current_number_of_sales", agg="sum"), "current_number_of_sales"
-    )
-    d_precio_m2 = ns.delta_ultimo_periodo(
-        ns.serie_mensual_total(tipo_df, "current_price_per_sqm", agg="mean"), "current_price_per_sqm"
-    )
-    d_precio_medio = ns.delta_ultimo_periodo(
-        ns.serie_mensual_total(tipo_df, "current_average_price", agg="mean"), "current_average_price"
-    )
+    # ── KPIs (mes más reciente con dato vs el anterior), filtrados por tipo ─
+    serie_ventas = ns.serie_mensual_total(tipo_mensual, "current_number_of_sales", agg="sum")
+    serie_precio_m2 = ns.serie_mensual_total(tipo_mensual, "current_price_per_sqm", agg="mean")
+    serie_precio_medio = ns.serie_mensual_total(tipo_mensual, "current_average_price", agg="mean")
+    d_ventas = ns.delta_ultimo_periodo(serie_ventas, "current_number_of_sales")
+    d_precio_m2 = ns.delta_ultimo_periodo(serie_precio_m2, "current_price_per_sqm")
+    d_precio_medio = ns.delta_ultimo_periodo(serie_precio_medio, "current_average_price")
+
+    ultimo_mes = tipo_mensual["last_data_update"].max() if not tipo_mensual.empty else None
 
     fila_referencia = tabla[
         (tabla["property_type"].isin(tipos_seleccionados))
@@ -440,10 +460,24 @@ def render_notarial(notarial_rows: list, props: list):
     oficial_ref = _media_o_none(fila_referencia["precio_m2_oficial"])
     estado = ns.estado_comparacion_mercado(diferencia_ref, oficial_ref)
 
+    st.markdown(
+        f"""<style>
+        [data-testid="stMetric"] {{
+            background:{COLORS['white']}; border:1px solid {COLORS['champagne_dark']};
+            border-radius:12px; padding:14px 16px 10px;
+            box-shadow:0 2px 8px rgba(6,78,59,0.06);
+        }}
+        [data-testid="stMetricLabel"] p {{ color:{COLORS['primary']}; font-weight:600; }}
+        [data-testid="stMetricValue"] {{ color:{COLORS['charcoal']}; }}
+        </style>""",
+        unsafe_allow_html=True,
+    )
+
     st.subheader("📌 Resumen del mercado")
+    st.caption(f"🗓️ Último dato mensual disponible ({etiqueta_tipo}): **{_mes_es(ultimo_mes)}**")
     c1, c2, c3 = st.columns(3)
     c1.metric(
-        "🤝 Compraventas / mes (todos los tipos)", n_(d_ventas["actual"]),
+        f"🤝 Compraventas / mes ({etiqueta_tipo})", n_(d_ventas["actual"]),
         delta=f"{d_ventas['delta_abs']:+.0f}" if d_ventas["delta_abs"] is not None else None,
         delta_color="off",
     )
@@ -465,9 +499,25 @@ def render_notarial(notarial_rows: list, props: list):
     sufijo = f" (diferencia: {eur(diferencia_ref)}/m²)" if diferencia_ref is not None else ""
     alerta_fn(f"{ESTADO_LABEL[estado]} — {mensaje}{sufijo}")
     st.caption(
-        "Deltas de compraventas y precios: último informe notarial disponible frente al "
-        "anterior con dato. Verde/rojo en €/m² y precio medio: bajar es bueno para el comprador."
+        "Deltas de compraventas y precios: último mes con dato notarial real frente al "
+        "mes anterior. Verde/rojo en €/m² y precio medio: bajar es bueno para el comprador."
     )
+
+    # ── Comparativa histórica: 3 / 6 / 12 meses atrás ──────────────────
+    horizontes = [3, 6, 12]
+    filas_hist = []
+    for horiz in horizontes:
+        dv = ns.delta_meses_atras(serie_ventas, "current_number_of_sales", horiz)
+        dp = ns.delta_meses_atras(serie_precio_m2, "current_price_per_sqm", horiz)
+        dm = ns.delta_meses_atras(serie_precio_medio, "current_average_price", horiz)
+        filas_hist.append({
+            "Horizonte": f"Hace {horiz} meses",
+            "Compraventas": f"{dv['delta_abs']:+.0f}" if dv["delta_abs"] is not None else "N/D",
+            "€/m² oficial": f"{dp['delta_pct']:+.1f}%" if dp["delta_pct"] is not None else "N/D",
+            "Precio medio oficial": f"{dm['delta_pct']:+.1f}%" if dm["delta_pct"] is not None else "N/D",
+        })
+    st.caption("📅 Comparativa histórica")
+    st.dataframe(pd.DataFrame(filas_hist), use_container_width=True, hide_index=True)
     st.divider()
 
     # ── Evolución mensual, 3 en fila ────────────────────────────────────
@@ -481,7 +531,7 @@ def render_notarial(notarial_rows: list, props: list):
     for col, (columna, titulo, y_title) in zip(cols_evolucion, metricas_evolucion):
         with col:
             st.caption(titulo)
-            serie = _serie_por_construccion(df, tipos_seleccionados, columna)
+            serie = _serie_por_construccion(mensual_df, tipos_seleccionados, columna)
             if serie.empty or serie["last_data_update"].nunique() < 2:
                 st.info("Histórico insuficiente (≥2 informes con dato).")
             else:
