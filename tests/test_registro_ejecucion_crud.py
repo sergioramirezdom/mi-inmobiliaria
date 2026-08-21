@@ -36,6 +36,19 @@ def test_get_by_fuente_returns_rows_for_that_fuente():
     assert result == rows
 
 
+def test_get_by_run_id_returns_rows_for_that_run_id():
+    session = MagicMock()
+    rows = [
+        RegistroEjecucion(fuente_id=1, tipo="scrape", total=3, run_id="abc"),
+        RegistroEjecucion(fuente_id=2, tipo="scrape", total=4, run_id="abc"),
+    ]
+    session.exec.return_value.all.return_value = rows
+
+    result = RegistroEjecucionCRUD.get_by_run_id(session, run_id="abc")
+
+    assert result == rows
+
+
 def test_get_recent_returns_rows_across_fuentes():
     session = MagicMock()
     rows = [

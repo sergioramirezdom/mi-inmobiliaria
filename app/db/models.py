@@ -161,3 +161,4 @@ class RegistroEjecucion(SQLModel, table=True):
     nuevas: Optional[int] = None  # scrape only
     duplicadas: Optional[int] = None  # scrape only
     duracion_segundos: Optional[float] = None
+    run_id: Optional[str] = Field(default=None, index=True)  # UUID4 shared by all rows from one top-level cycle

@@ -80,6 +80,133 @@ async def test_scrape_fuente_writes_registro_ejecucion_row(monkeypatch):
     assert registro.duracion_segundos == 12.5
 
 
+async def test_scrape_fuente_passes_run_id_through_to_registro_ejecucion(monkeypatch):
+    fuente = _fuente()
+    fake_session = FakeSession(fuente)
+    monkeypatch.setattr(scheduler_mod, "Session", lambda engine: _FakeSessionCtx(fake_session))
+
+    stats = {"nuevas": 0, "duplicadas": 0, "errores": 0, "paginas_procesadas": 1, "tiempo_segundos": 1.0}
+
+    fake_runner = MagicMock()
+    fake_runner.run_paginated_scraper = AsyncMock(return_value=stats)
+    monkeypatch.setattr(scheduler_mod, "ScraperRunner", lambda session: fake_runner)
+
+    created = MagicMock()
+    monkeypatch.setattr(scheduler_mod.RegistroEjecucionCRUD, "create", created)
+
+    scheduler = ScraperScheduler()
+    await scheduler._scrape_fuente(fuente, run_id="fixed-run-id")
+
+    call_session, registro = created.call_args[0]
+    assert registro.run_id == "fixed-run-id"
+
+
+async def test_check_and_scrape_shares_one_run_id_across_all_fuentes(monkeypatch):
+    fuente_a = Fuente(id=1, nombre="A", url="http://example.com/a", activa=True, intervalo_horas=6, ultima_ejecucion=None)
+    fuente_b = Fuente(id=2, nombre="B", url="http://example.com/b", activa=True, intervalo_horas=6, ultima_ejecucion=None)
+
+    class _FuenteListSession:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def exec(self, stmt):
+            result = MagicMock()
+            result.all.return_value = [fuente_a, fuente_b]
+            return result
+
+    monkeypatch.setattr(scheduler_mod, "Session", lambda engine: _FuenteListSession())
+
+    seen_run_ids = []
+
+    async def fake_scrape_fuente(self, fuente, run_id=None):
+        seen_run_ids.append(run_id)
+
+    monkeypatch.setattr(scheduler_mod.ScraperScheduler, "_scrape_fuente", fake_scrape_fuente)
+
+    scheduler = ScraperScheduler()
+    await scheduler.check_and_scrape()
+
+    assert len(seen_run_ids) == 2
+    assert seen_run_ids[0] is not None
+    assert seen_run_ids[0] == seen_run_ids[1]
+
+    first_run_id = seen_run_ids[0]
+
+    seen_run_ids.clear()
+    await scheduler.check_and_scrape()
+    second_run_id = seen_run_ids[0]
+
+    assert second_run_id is not None
+    assert second_run_id != first_run_id
+
+
+async def test_force_scrape_all_shares_one_run_id_across_all_fuentes(monkeypatch):
+    fuente_a = Fuente(id=1, nombre="A", url="http://example.com/a", activa=True, intervalo_horas=6)
+    fuente_b = Fuente(id=2, nombre="B", url="http://example.com/b", activa=True, intervalo_horas=6)
+
+    class _FuenteListSession:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def exec(self, stmt):
+            result = MagicMock()
+            result.all.return_value = [fuente_a, fuente_b]
+            return result
+
+    monkeypatch.setattr(scheduler_mod, "Session", lambda engine: _FuenteListSession())
+
+    seen_run_ids = []
+
+    async def fake_scrape_fuente(self, fuente, run_id=None):
+        seen_run_ids.append(run_id)
+
+    monkeypatch.setattr(scheduler_mod.ScraperScheduler, "_scrape_fuente", fake_scrape_fuente)
+
+    scheduler = ScraperScheduler()
+    await scheduler.force_scrape_all()
+
+    assert len(seen_run_ids) == 2
+    assert seen_run_ids[0] is not None
+    assert seen_run_ids[0] == seen_run_ids[1]
+
+
+async def test_force_scrape_all_generates_different_run_id_per_call(monkeypatch):
+    fuente_a = Fuente(id=1, nombre="A", url="http://example.com/a", activa=True, intervalo_horas=6)
+
+    class _FuenteListSession:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def exec(self, stmt):
+            result = MagicMock()
+            result.all.return_value = [fuente_a]
+            return result
+
+    monkeypatch.setattr(scheduler_mod, "Session", lambda engine: _FuenteListSession())
+
+    seen_run_ids = []
+
+    async def fake_scrape_fuente(self, fuente, run_id=None):
+        seen_run_ids.append(run_id)
+
+    monkeypatch.setattr(scheduler_mod.ScraperScheduler, "_scrape_fuente", fake_scrape_fuente)
+
+    scheduler = ScraperScheduler()
+    await scheduler.force_scrape_all()
+    await scheduler.force_scrape_all()
+
+    assert seen_run_ids[0] != seen_run_ids[1]
+
+
 async def test_scrape_fuente_log_write_failure_does_not_block_the_run(monkeypatch):
     """A run-log write failure must never block notification sending / the run."""
     fuente = _fuente()
