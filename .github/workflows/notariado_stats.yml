@@ -1,0 +1,59 @@
+name: Notariado Market Stats Ingestion
+
+on:
+  # Weekly, Monday at 06:00 UTC
+  schedule:
+    - cron: '0 6 * * 1'
+
+  # Allow manual trigger (with optional --backfill)
+  workflow_dispatch:
+    inputs:
+      backfill:
+        description: 'Also persist nested historical monthly/quarterly/yearly periods'
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  notariado-stats:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Configure environment
+        run: |
+          echo "DATABASE_URL=${{ secrets.DATABASE_URL }}" >> $GITHUB_ENV
+          echo "NOTARIADO_EMAIL=${{ secrets.NOTARIADO_EMAIL }}" >> $GITHUB_ENV
+          echo "NOTARIADO_PASSWORD=${{ secrets.NOTARIADO_PASSWORD }}" >> $GITHUB_ENV
+
+      - name: Fetch notariado market stats
+        run: |
+          mkdir -p logs
+          echo "🏛️ Fetching notariado stats ($(date -u +'%Y-%m-%d %H:%M:%S UTC'))"
+          if [ "${{ github.event.inputs.backfill }}" = "true" ]; then
+            python -u scripts/fetch_notariado_stats.py --backfill
+          else
+            python -u scripts/fetch_notariado_stats.py
+          fi
+        timeout-minutes: 20
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: notariado-stats-logs-${{ github.run_id }}
+          path: logs/
+          retention-days: 7

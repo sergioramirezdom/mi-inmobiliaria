@@ -1,0 +1,53 @@
+{
+  "currentPricePerSqm": 1520.75,
+  "currentNumberOfSales": 46,
+  "currentAveragePrice": 214500.0,
+  "currentAverageAreaSqm": 88.2,
+  "ratePriceChange": 1.9,
+  "lastDataUpdate": "2026-06-30T00:00:00",
+  "reportDate": "2026-07-15T00:00:00",
+  "historicalData": {
+    "monthly": [
+      {
+        "pricePerSqm": 1498.2,
+        "numberOfSales": 41,
+        "averagePrice": 209000.0,
+        "averageAreaSqm": 87.5,
+        "rateChange": 1.4,
+        "dataUpdate": "2026-05-31T00:00:00",
+        "reportDate": "2026-06-15T00:00:00"
+      },
+      {
+        "pricePerSqm": 1475.0,
+        "numberOfSales": 38,
+        "averagePrice": 205500.0,
+        "averageAreaSqm": 86.9,
+        "rateChange": 0.8,
+        "dataUpdate": "2026-04-30T00:00:00",
+        "reportDate": "2026-05-15T00:00:00"
+      }
+    ],
+    "quarterly": [
+      {
+        "pricePerSqm": 1460.3,
+        "numberOfSales": 120,
+        "averagePrice": 203000.0,
+        "averageAreaSqm": 86.1,
+        "rateChange": 2.2,
+        "dataUpdate": "2026-03-31T00:00:00",
+        "reportDate": "2026-04-15T00:00:00"
+      }
+    ],
+    "yearly": [
+      {
+        "pricePerSqm": 1390.0,
+        "numberOfSales": 480,
+        "averagePrice": 195000.0,
+        "averageAreaSqm": 85.0,
+        "rateChange": 3.1,
+        "dataUpdate": "2025-12-31T00:00:00",
+        "reportDate": "2026-01-15T00:00:00"
+      }
+    ]
+  }
+}
