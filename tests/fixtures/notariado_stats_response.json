@@ -15,17 +15,18 @@
         "12months": {
           "value": 2145.61,
           "metric": [
+            {"legend": "Jun 2025", "value": 0, "estimation": 2242.87},
+            {"legend": "Jul 2025", "value": 0, "estimation": 2242.87},
+            {"legend": "Ago 2025", "value": 0, "estimation": 2242.87},
+            {"legend": "Sep 2025", "value": 0, "estimation": 2242.87},
+            {"legend": "Oct 2025", "value": 0, "estimation": 2242.87},
+            {"legend": "Nov 2025", "value": 0, "estimation": 2242.87},
             {"legend": "Dic 2025", "value": 2101.41, "estimation": 2101.41},
             {"legend": "Ene 2026", "value": 2421.36, "estimation": 2421.36},
-            {"legend": "Feb 2026", "value": 2205.84, "estimation": 2205.84}
-          ]
-        },
-        "5years": {
-          "value": 2270.37,
-          "metric": [
-            {"legend": "2024", "value": 2783.11},
-            {"legend": "2025", "value": 2118.67},
-            {"legend": "2026", "value": 2317.2}
+            {"legend": "Feb 2026", "value": 2205.84, "estimation": 2205.84},
+            {"legend": "Mar 2026", "value": 0, "estimation": 2242.87},
+            {"legend": "Abr 2026", "value": 0, "estimation": 2242.87},
+            {"legend": "May 2026", "value": 0, "estimation": 2242.87}
           ]
         }
       },
@@ -33,9 +34,18 @@
         "12months": {
           "value": 69,
           "metric": [
+            {"legend": "Jun 2025", "value": 4},
+            {"legend": "Jul 2025", "value": 2},
+            {"legend": "Ago 2025", "value": 0},
+            {"legend": "Sep 2025", "value": 1},
+            {"legend": "Oct 2025", "value": 1},
+            {"legend": "Nov 2025", "value": 1},
             {"legend": "Dic 2025", "value": 35},
             {"legend": "Ene 2026", "value": 9},
-            {"legend": "Feb 2026", "value": 11}
+            {"legend": "Feb 2026", "value": 11},
+            {"legend": "Mar 2026", "value": 3},
+            {"legend": "Abr 2026", "value": 2},
+            {"legend": "May 2026", "value": 0}
           ]
         }
       },
@@ -43,9 +53,18 @@
         "12months": {
           "value": 166157.79,
           "metric": [
+            {"legend": "Jun 2025", "value": 0},
+            {"legend": "Jul 2025", "value": 0},
+            {"legend": "Ago 2025", "value": 0},
+            {"legend": "Sep 2025", "value": 0},
+            {"legend": "Oct 2025", "value": 0},
+            {"legend": "Nov 2025", "value": 0},
             {"legend": "Dic 2025", "value": 162190.96},
             {"legend": "Ene 2026", "value": 189773.93},
-            {"legend": "Feb 2026", "value": 170830.32}
+            {"legend": "Feb 2026", "value": 170830.32},
+            {"legend": "Mar 2026", "value": 0},
+            {"legend": "Abr 2026", "value": 0},
+            {"legend": "May 2026", "value": 0}
           ]
         }
       },

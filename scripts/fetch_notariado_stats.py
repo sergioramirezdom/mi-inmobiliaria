@@ -15,9 +15,11 @@ inactive sentinel Fuente row to anchor the run log — see
 
 Usage:
     python scripts/fetch_notariado_stats.py              # current data only
-    python scripts/fetch_notariado_stats.py --backfill    # also persist the
-                                                            # 12-month price-
-                                                            # per-sqm series
+    python scripts/fetch_notariado_stats.py --backfill    # also persist one
+                                                            # row per month in
+                                                            # the 12-month
+                                                            # sales/price/avg-
+                                                            # price series
 """
 
 import json
@@ -147,36 +149,38 @@ def _12month_metric_by_legend(stats: dict, metric_name: str) -> dict:
 def _historical_periods(
     response: dict, property_type_code: int, construction_type_code: int
 ) -> list:
-    """Map the 12-month price-per-sqm, number-of-sales, and average-price
+    """Map the 12-month number-of-sales, price-per-sqm, and average-price
     series together (matched by legend, e.g. "Dic 2025") into one row per
-    non-zero month.
+    month that `numberOfSales` has real data for.
 
     The design originally assumed a flat `historicalData.monthly/quarterly/
     yearly` list of full period records; the real response has no such
-    thing. It exposes per-metric time-bucket series (`pricePerSqm` /
-    `numberOfSales` / `averagePrice`, each split into `12months` / `2years`
+    thing. It exposes per-metric time-bucket series (`numberOfSales` /
+    `pricePerSqm` / `averagePrice`, each split into `12months` / `2years`
     / `5years` / `12years`), keyed by a locale legend string with no real
-    timestamp. Only the `12months` buckets are mapped here — they're the
-    ones with real (non-estimated) monthly values in practice. The quarter/
+    timestamp. Only the `12months` buckets are mapped here — the quarter/
     year buckets need their own design pass (legend parsing across
     "Jul-Sep 2024"-style ranges and bare years) before being backfilled;
     `raw_json` on the current row preserves the full nested series either
     way, so nothing is lost by deferring them.
 
-    A month with `pricePerSqm.value == 0` means the notary hasn't reported
-    real sales for it yet (only a trend `estimation`) — those are skipped
-    rather than stored as a misleading zero price point.
+    `numberOfSales.12months` has a real reported count for every month
+    (including legitimate zeros), so it drives which months get a row.
+    `pricePerSqm`/`averagePrice` are often estimation-only for a given
+    month (real value 0, the real number sits in `estimation`) — those are
+    attached only when they carry a real (non-zero) value for that same
+    month, otherwise left null rather than filled with the estimate.
     """
     stats = response.get("data", {}).get("statistics", {})
-    price_by_legend = _12month_metric_by_legend(stats, "pricePerSqm")
     sales_by_legend = _12month_metric_by_legend(stats, "numberOfSales")
+    price_by_legend = _12month_metric_by_legend(stats, "pricePerSqm")
     avg_price_by_legend = _12month_metric_by_legend(stats, "averagePrice")
     report_date = _parse_datetime(stats["reportDate"]) if stats.get("reportDate") else None
 
     rows = []
-    for legend, price_entry in price_by_legend.items():
-        value = price_entry.get("value")
-        if not value:
+    for legend, sales_entry in sales_by_legend.items():
+        sales_value = sales_entry.get("value")
+        if sales_value is None:
             continue
         month_date = _parse_month_legend(legend)
         if month_date is None:
@@ -185,22 +189,24 @@ def _historical_periods(
                 legend, property_type_code, construction_type_code,
             )
             continue
+        price_entry = price_by_legend.get(legend) or {}
+        avg_price_entry = avg_price_by_legend.get(legend) or {}
         rows.append(
             EstadisticaNotarial(
                 location_code=LOCATION_CODE,
                 property_type=_SLUG_BY_PROPERTY_CODE[property_type_code],
                 construction_type=_SLUG_BY_CONSTRUCTION_CODE[construction_type_code],
-                current_price_per_sqm=value,
-                current_number_of_sales=sales_by_legend.get(legend, {}).get("value"),
-                current_average_price=avg_price_by_legend.get(legend, {}).get("value"),
+                current_price_per_sqm=price_entry.get("value") or None,
+                current_number_of_sales=sales_value,
+                current_average_price=avg_price_entry.get("value") or None,
                 last_data_update=month_date,
                 report_date=report_date or month_date,
                 raw_json=json.dumps(
                     {
                         "legend": legend,
-                        "pricePerSqm": price_entry,
-                        "numberOfSales": sales_by_legend.get(legend),
-                        "averagePrice": avg_price_by_legend.get(legend),
+                        "numberOfSales": sales_entry,
+                        "pricePerSqm": price_entry or None,
+                        "averagePrice": avg_price_entry or None,
                     }
                 ),
             )

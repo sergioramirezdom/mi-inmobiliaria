@@ -116,35 +116,55 @@ def test_inserts_when_last_data_update_changed(test_engine, stub_auth, monkeypat
     assert exit_code == 0
 
 
-def test_backfill_flag_inserts_12month_series(test_engine, stub_auth, monkeypatch):
-    """--backfill maps the 12-month price-per-sqm, number-of-sales, and
-    average-price series together (matched by legend) into one historical
-    row per non-zero month, on top of the current row. The fixture has 3
-    non-zero months: Dic 2025, Ene 2026, Feb 2026."""
+def _rows_for_combo(session, property_type: str, construction_type: str):
+    return session.exec(
+        select(EstadisticaNotarial).where(
+            EstadisticaNotarial.property_type == property_type,
+            EstadisticaNotarial.construction_type == construction_type,
+        )
+    ).all()
+
+
+def test_backfill_flag_inserts_one_row_per_month_with_sales_data(
+    test_engine, stub_auth, monkeypatch
+):
+    """--backfill is driven by numberOfSales.12months (real data every
+    month, including legitimate zeros) — one row per month. pricePerSqm/
+    averagePrice are attached only when that month has a real (non-zero,
+    non-estimation-only) value; the fixture has real price/avg data for
+    just 3 of the 12 months (Dic 2025, Ene 2026, Feb 2026)."""
     fixture = _load_fixture()
     monkeypatch.setattr(fns, "fetch_stats", lambda *a, **k: fixture)
 
     exit_code = fns.main(["--backfill"])
 
     with Session(test_engine) as session:
-        rows = session.exec(select(EstadisticaNotarial)).all()
-        # Per combo: 1 current row + 3 monthly rows = 4.
-        assert len(rows) == len(COMBOS) * 4
+        rows = _rows_for_combo(session, "piso", "obra_nueva")
+        # 1 current row + 12 monthly rows (numberOfSales has 12 months).
+        assert len(rows) == 13
 
-        # Current row is the only one dated 2026-05 (the fixture's
-        # lastDataUpdate); everything else is a backfilled month.
-        historical = [
-            r for r in rows if r.last_data_update.strftime("%Y-%m") != "2026-05"
-        ]
-        assert len(historical) == len(COMBOS) * 3
-        months = {r.last_data_update.strftime("%Y-%m") for r in historical}
-        assert months == {"2025-12", "2026-01", "2026-02"}
+        by_month = {}
+        for r in rows:
+            by_month.setdefault(r.last_data_update.strftime("%Y-%m"), []).append(r)
+        assert set(by_month) == {
+            "2025-06", "2025-07", "2025-08", "2025-09", "2025-10", "2025-11",
+            "2025-12", "2026-01", "2026-02", "2026-03", "2026-04", "2026-05",
+        }
 
-        by_month = {r.last_data_update.strftime("%Y-%m"): r for r in historical[:3]}
-        dec = by_month["2025-12"]
+        # Dic 2025 has real price + avg-price data.
+        dec = next(r for r in by_month["2025-12"] if r.current_number_of_sales == 35)
         assert dec.current_price_per_sqm == 2101.41
-        assert dec.current_number_of_sales == 35
         assert dec.current_average_price == 162190.96
+
+        # Jun 2025 only has real sales data — price/avg-price are null,
+        # not filled with the estimation.
+        jun = next(r for r in by_month["2025-06"] if r.current_number_of_sales == 4)
+        assert jun.current_price_per_sqm is None
+        assert jun.current_average_price is None
+
+        # Ago 2025 is a legitimate zero-sales month, still gets a row.
+        ago = next(r for r in by_month["2025-08"] if r.current_number_of_sales == 0)
+        assert ago.current_price_per_sqm is None
 
     assert exit_code == 0
 
@@ -161,11 +181,8 @@ def test_backfill_is_idempotent_for_unchanged_monthly_values(
     fns.main(["--backfill"])
 
     with Session(test_engine) as session:
-        rows = session.exec(select(EstadisticaNotarial)).all()
-        historical = [
-            r for r in rows if r.last_data_update.strftime("%Y-%m") != "2026-05"
-        ]
-        assert len(historical) == len(COMBOS) * 3
+        rows = _rows_for_combo(session, "piso", "obra_nueva")
+        assert len(rows) == 13
 
 
 def test_run_logs_registro_ejecucion_on_success_and_failure(test_engine, stub_auth, monkeypatch):
