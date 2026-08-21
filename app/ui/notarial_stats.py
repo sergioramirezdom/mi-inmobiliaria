@@ -52,15 +52,93 @@ def latest_por_combo(df: pd.DataFrame) -> pd.DataFrame:
     )
 
 
-def serie_temporal(df: pd.DataFrame, property_type: str, construction_type: str) -> pd.DataFrame:
-    """Serie temporal ordenada de `current_price_per_sqm` para un combo."""
+def serie_mensual(
+    df: pd.DataFrame, property_type: str, construction_type: str, columna: str
+) -> pd.DataFrame:
+    """Serie mensual ordenada de `columna` para un combo, sin meses con dato nulo.
+
+    No todas las métricas tienen dato real cada mes (p.ej. `current_price_per_sqm`
+    suele faltar en meses recientes sin transacciones cerradas todavía) — filtrar
+    los nulos evita graficar ceros engañosos.
+    """
     if df.empty:
         return df
     serie = df[
         (df["property_type"] == property_type)
         & (df["construction_type"] == construction_type)
     ].sort_values("last_data_update")
-    return serie[["last_data_update", "current_price_per_sqm"]]
+    return serie[["last_data_update", columna]].dropna(subset=[columna]).reset_index(drop=True)
+
+
+def serie_temporal(df: pd.DataFrame, property_type: str, construction_type: str) -> pd.DataFrame:
+    """Serie temporal ordenada de `current_price_per_sqm` para un combo."""
+    return serie_mensual(df, property_type, construction_type, "current_price_per_sqm")
+
+
+def serie_mensual_total(df: pd.DataFrame, columna: str, agg: str = "sum") -> pd.DataFrame:
+    """Serie mensual de `columna` agregada (suma o media) entre los 4 combos.
+
+    Útil para un total de mercado (p.ej. compraventas totales/mes = suma entre
+    combos) o una media (p.ej. €/m² medio/mes entre obra nueva y segunda mano).
+    Descarta filas con `columna` nula antes de agregar.
+    """
+    vacio = pd.DataFrame(columns=["last_data_update", columna])
+    if df.empty:
+        return vacio
+    d = df.dropna(subset=[columna])
+    if d.empty:
+        return vacio
+    return (
+        d.groupby("last_data_update")[columna]
+        .agg(agg)
+        .reset_index()
+        .sort_values("last_data_update")
+        .reset_index(drop=True)
+    )
+
+
+def delta_ultimo_periodo(serie: pd.DataFrame, columna: str) -> dict:
+    """Compara el último valor no nulo de `columna` con el anterior.
+
+    `serie` debe venir ya filtrada/ordenada (p.ej. de `serie_mensual` o
+    `serie_mensual_total`). `direccion` es "sube"|"baja"|"igual" cuando hay
+    2+ puntos, "sin_comparacion" con 1 solo punto, "sin_datos" si está vacía.
+    """
+    resultado = {
+        "actual": None, "anterior": None, "delta_abs": None,
+        "delta_pct": None, "direccion": "sin_datos",
+    }
+    if serie.empty:
+        return resultado
+    valores = serie[columna].tolist()
+    if len(valores) == 1:
+        resultado["actual"] = valores[-1]
+        resultado["direccion"] = "sin_comparacion"
+        return resultado
+    actual, anterior = valores[-1], valores[-2]
+    delta_abs = actual - anterior
+    delta_pct = round(100 * delta_abs / anterior, 1) if anterior else None
+    direccion = "sube" if delta_abs > 0 else ("baja" if delta_abs < 0 else "igual")
+    return {
+        "actual": actual, "anterior": anterior, "delta_abs": delta_abs,
+        "delta_pct": delta_pct, "direccion": direccion,
+    }
+
+
+def estado_comparacion_mercado(diferencia, oficial, umbral_pct: float = 3.0) -> str:
+    """Clasifica `diferencia` (mercado − oficial) desde la perspectiva del comprador.
+
+    Mercado más barato que el precio oficial notarial = "favorable" (margen para
+    negociar); más caro = "desfavorable"; dentro de ±`umbral_pct`% = "neutral".
+    """
+    if diferencia is None or oficial is None or not oficial:
+        return "sin_datos"
+    pct = 100 * diferencia / oficial
+    if pct <= -umbral_pct:
+        return "favorable"
+    if pct >= umbral_pct:
+        return "desfavorable"
+    return "neutral"
 
 
 def listing_precio_m2_medio_por_tipo(props: list) -> dict:
