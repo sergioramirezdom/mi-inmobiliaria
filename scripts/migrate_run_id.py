@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Añade la columna run_id a registro_ejecucion.
+"""Añade la columna run_id a registroejecucion.
 
 Idempotente: se puede ejecutar varias veces sin efecto adicional.
 La columna es nullable y sin default, así que Postgres no reescribe
@@ -19,9 +19,9 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 SENTENCIAS = [
-    "ALTER TABLE registro_ejecucion ADD COLUMN IF NOT EXISTS run_id VARCHAR",
-    "CREATE INDEX IF NOT EXISTS ix_registro_ejecucion_run_id "
-    "ON registro_ejecucion (run_id)",
+    "ALTER TABLE registroejecucion ADD COLUMN IF NOT EXISTS run_id VARCHAR",
+    "CREATE INDEX IF NOT EXISTS ix_registroejecucion_run_id "
+    "ON registroejecucion (run_id)",
 ]
 
 if __name__ == "__main__":
