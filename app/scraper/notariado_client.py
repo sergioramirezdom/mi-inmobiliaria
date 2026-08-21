@@ -14,6 +14,7 @@ import httpx
 
 SSO_TOKEN_URL = "https://sso.notariado.org/realms/peni/protocol/openid-connect/token"
 STATS_URL = "https://www.penotariado.com/inmobiliario/rest/v1/private/statistics"
+USERS_URL = "https://www.penotariado.com/inmobiliario/rest/v1/private/users"
 CLIENT_ID = "peni-oidc-js"
 
 # Verified live 2026-08-21 (locationCode=11027). 99 = "Todos" (unused — the 4
@@ -80,3 +81,21 @@ def fetch_stats(
     )
     response.raise_for_status()
     return response.json()
+
+
+def fetch_quota(token: str, *, timeout: float = 30.0) -> dict:
+    """GET USERS_URL with Authorization: Bearer <token>. Returns the `data`
+    block of the response, which carries `numberMonthlyQueries` /
+    `numberExtraQueries` quota counters alongside account fields.
+
+    Endpoint/field names verified live 2026-08-21 via authenticated devtools
+    capture (see Engram obs #17): `{"data": {..., "numberMonthlyQueries": 48,
+    "numberExtraQueries": 0, ...}}`.
+    """
+    response = httpx.get(
+        USERS_URL,
+        headers={"Authorization": f"Bearer {token}"},
+        timeout=timeout,
+    )
+    response.raise_for_status()
+    return response.json()["data"]
