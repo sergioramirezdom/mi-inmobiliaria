@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import uuid
 from datetime import datetime, timedelta
 from typing import Optional, List
 import sys
@@ -53,6 +54,7 @@ class ScraperScheduler:
 
     async def check_and_scrape(self) -> None:
         """Check all active fuentes and scrape if interval has passed."""
+        run_id = str(uuid.uuid4())
         try:
             with Session(engine) as session:
                 # Get all active fuentes
@@ -67,7 +69,7 @@ class ScraperScheduler:
 
                 for fuente in fuentes:
                     if self._should_scrape(fuente):
-                        await self._scrape_fuente(fuente)
+                        await self._scrape_fuente(fuente, run_id=run_id)
                     else:
                         next_scrape = self._get_next_scrape_time(fuente)
                         time_until = self._format_time_delta(next_scrape)
@@ -93,6 +95,7 @@ class ScraperScheduler:
 
     async def force_scrape_all(self) -> None:
         """Force scraping of all active fuentes regardless of intervalo_horas."""
+        run_id = str(uuid.uuid4())
         try:
             with Session(engine) as session:
                 stmt = select(Fuente).where(Fuente.activa == True)
@@ -104,12 +107,12 @@ class ScraperScheduler:
 
             self.logger.info(f"🔁 Forcing scrape for {len(fuentes)} fuente(s)...")
             for fuente in fuentes:
-                await self._scrape_fuente(fuente)
+                await self._scrape_fuente(fuente, run_id=run_id)
 
         except Exception as e:
             self.logger.error(f"Error in force_scrape_all: {e}", exc_info=True)
 
-    async def _scrape_fuente(self, fuente: Fuente) -> None:
+    async def _scrape_fuente(self, fuente: Fuente, run_id: Optional[str] = None) -> None:
         """Scrape a single fuente and send notifications based on filters."""
         fuente_id = fuente.id
         fuente_nombre = fuente.nombre
@@ -155,6 +158,7 @@ class ScraperScheduler:
                             duplicadas=duplicadas,
                             errores=errores,
                             duracion_segundos=tiempo,
+                            run_id=run_id,
                         ),
                     )
                 except Exception as e:

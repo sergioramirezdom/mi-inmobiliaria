@@ -184,3 +184,21 @@ async def test_writes_one_registro_ejecucion_row_per_fuente_touched(monkeypatch)
     assert by_fuente[20].total == 2
     assert by_fuente[20].activas == stats["por_fuente"][20]["activas"]
     assert by_fuente[20].sin_datos == stats["por_fuente"][20]["sin_datos"]
+
+
+async def test_registro_ejecucion_rows_share_one_run_id_per_check_sold_properties_call(monkeypatch):
+    """All RegistroEjecucion rows written by a single check_sold_properties()
+    call must share the same run_id (one per top-level cycle)."""
+    prop_a = _prop(prop_id=1, fuente_id=10, intentos_fallidos=0)
+    prop_b = _prop(prop_id=2, fuente_id=20, intentos_fallidos=0)
+
+    _patch_scraper(monkeypatch, lambda url: {"titulo": "Piso", "precio": 100000})
+    session = FakeSession([prop_a, prop_b], [_fuente(10), _fuente(20)])
+
+    await sold_checker.check_sold_properties(session)
+
+    registros = [obj for obj in session.added if type(obj).__name__ == "RegistroEjecucion"]
+    assert len(registros) == 2
+    run_ids = {r.run_id for r in registros}
+    assert len(run_ids) == 1
+    assert None not in run_ids
