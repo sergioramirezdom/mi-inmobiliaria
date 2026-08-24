@@ -500,7 +500,7 @@ with col2:
                                 "🧪 Probar scraping",
                                 key=f"test_{fuente.id}",
                                 disabled=not fuente.activa,
-                                help="Ejecuta un scraping de prueba para esta fuente (página actual)"
+                                help="Prueba hasta 5 propiedades con datos de detalle, sin guardar nada"
                                 if fuente.activa
                                 else "Activa la fuente primero",
                                 use_container_width=True,
@@ -524,74 +524,145 @@ with col2:
                         scraping_mode = st.session_state.get(
                             f"scraping_{fuente.id}", False
                         )
-                        if scraping_mode:
-                            scraping_type = (
-                                "completo (paginado)"
-                                if scraping_mode == "paginated"
-                                else "simple"
-                            )
+                        if scraping_mode == "simple":
+                            # Dry run: preview only, nothing written to the DB.
                             with st.spinner(
-                                f"🔄 Scrapeando {fuente.nombre} ({scraping_type})..."
+                                f"🧪 Probando {fuente.nombre} (sin guardar)..."
                             ):
                                 try:
                                     with Session(engine) as session:
                                         runner = ScraperRunner(session)
-                                        if scraping_mode == "paginated":
-                                            stats = asyncio.run(
-                                                runner.run_paginated_scraper(
-                                                    fuente, results_per_page=48
-                                                )
-                                            )
-                                        else:
-                                            stats = asyncio.run(
-                                                runner.run_scraper(fuente)
-                                            )
+                                        report = asyncio.run(
+                                            runner.dry_run_scraper(fuente, limit=5)
+                                        )
 
-                                    if scraping_mode == "paginated":
-                                        result_cols = st.columns(5)
-                                        with result_cols[0]:
-                                            st.metric(
-                                                "✅ Nuevas", stats.get("nuevas", 0)
-                                            )
-                                        with result_cols[1]:
-                                            st.metric(
-                                                "⚠️ Duplicadas",
-                                                stats.get("duplicadas", 0),
-                                            )
-                                        with result_cols[2]:
-                                            st.metric(
-                                                "❌ Errores", stats.get("errores", 0)
-                                            )
-                                        with result_cols[3]:
-                                            st.metric(
-                                                "📄 Páginas",
-                                                stats.get("paginas_procesadas", 0),
-                                            )
-                                        with result_cols[4]:
-                                            st.metric(
-                                                "⏱️ Tiempo (s)",
-                                                stats.get("tiempo_segundos", 0),
-                                            )
+                                    if report.get("error"):
+                                        st.error(
+                                            f"❌ Error durante la prueba: {report['error']}"
+                                        )
                                     else:
                                         result_cols = st.columns(4)
                                         with result_cols[0]:
                                             st.metric(
-                                                "✅ Nuevas", stats.get("nuevas", 0)
+                                                "🔎 Encontradas",
+                                                report.get("encontradas", 0),
                                             )
                                         with result_cols[1]:
                                             st.metric(
-                                                "⚠️ Duplicadas",
-                                                stats.get("duplicadas", 0),
+                                                "🧪 Probadas",
+                                                report.get("muestreadas", 0),
                                             )
                                         with result_cols[2]:
                                             st.metric(
-                                                "❌ Errores", stats.get("errores", 0)
+                                                "✅ Con datos",
+                                                report.get("con_datos", 0),
                                             )
                                         with result_cols[3]:
                                             st.metric(
                                                 "⏱️ Tiempo (s)",
-                                                stats.get("tiempo_segundos", 0),
+                                                report.get("tiempo_segundos", 0),
                                             )
+
+                                        resultados = report.get("resultados", [])
+                                        if resultados:
+                                            st.divider()
+                                            st.caption(
+                                                "Vista previa — nada se ha guardado en la base de datos"
+                                            )
+                                            for item in resultados:
+                                                titulo = item.get("titulo") or "Sin título"
+                                                precio = (
+                                                    f"€{item['precio']:,.0f}"
+                                                    if item.get("precio")
+                                                    else "N/A"
+                                                )
+                                                m2 = (
+                                                    f"{item['superficie_m2']:.0f}m²"
+                                                    if item.get("superficie_m2")
+                                                    else "N/A"
+                                                )
+                                                hab = (
+                                                    f"{item['habitaciones']} hab"
+                                                    if item.get("habitaciones")
+                                                    else ""
+                                                )
+                                                estado = (
+                                                    "✅ Datos obtenidos"
+                                                    if item.get("ok")
+                                                    else "❌ Sin datos"
+                                                )
+                                                fotos_txt = (
+                                                    f"📷 {item['num_fotos']} fotos"
+                                                    if item.get("tiene_fotos")
+                                                    else "📷 Sin fotos"
+                                                )
+                                                st.markdown(
+                                                    f"**{titulo[:60]}** — {estado}\n\n"
+                                                    f"{precio} • {m2} {hab} • {fotos_txt}"
+                                                )
+                                                if item.get("error"):
+                                                    st.caption(f"⚠️ {item['error']}")
+                                                preview = item.get("fotos_preview") or []
+                                                if preview:
+                                                    img_cols = st.columns(len(preview))
+                                                    for col, foto_url in zip(
+                                                        img_cols, preview
+                                                    ):
+                                                        with col:
+                                                            st.image(
+                                                                foto_url,
+                                                                use_container_width=True,
+                                                            )
+                                                st.divider()
+
+                                    st.success("✅ Prueba completada")
+                                    st.session_state[f"scraping_{fuente.id}"] = None
+
+                                except asyncio.TimeoutError:
+                                    st.error(
+                                        "⏱️ Timeout: La prueba tardó demasiado tiempo"
+                                    )
+                                    st.session_state[f"scraping_{fuente.id}"] = None
+                                except Exception as e:
+                                    logger.error(
+                                        f"Error probando scraping de {fuente.nombre}: {e}"
+                                    )
+                                    st.error(f"❌ Error durante la prueba: {str(e)}")
+                                    st.session_state[f"scraping_{fuente.id}"] = None
+
+                        elif scraping_mode == "paginated":
+                            with st.spinner(
+                                f"🔄 Scrapeando {fuente.nombre} (completo, paginado)..."
+                            ):
+                                try:
+                                    with Session(engine) as session:
+                                        runner = ScraperRunner(session)
+                                        stats = asyncio.run(
+                                            runner.run_paginated_scraper(
+                                                fuente, results_per_page=48
+                                            )
+                                        )
+
+                                    result_cols = st.columns(5)
+                                    with result_cols[0]:
+                                        st.metric("✅ Nuevas", stats.get("nuevas", 0))
+                                    with result_cols[1]:
+                                        st.metric(
+                                            "⚠️ Duplicadas",
+                                            stats.get("duplicadas", 0),
+                                        )
+                                    with result_cols[2]:
+                                        st.metric("❌ Errores", stats.get("errores", 0))
+                                    with result_cols[3]:
+                                        st.metric(
+                                            "📄 Páginas",
+                                            stats.get("paginas_procesadas", 0),
+                                        )
+                                    with result_cols[4]:
+                                        st.metric(
+                                            "⏱️ Tiempo (s)",
+                                            stats.get("tiempo_segundos", 0),
+                                        )
 
                                     if stats.get("error"):
                                         st.error(
@@ -667,7 +738,7 @@ st.divider()
 st.markdown("""
 ### 💡 Consejos de Uso
 - **Scraper de detalle**: selecciona el específico de cada inmobiliaria para extraer precio, habitaciones, etc.
-- **Probar scraping** (🧪): Ejecuta scraping en la página actual solamente (rápido)
+- **Probar scraping** (🧪): Prueba hasta 5 propiedades con sus datos de detalle (precio, fotos, etc.) sin guardar nada en la base de datos — solo vista previa
 - **Scraping Completo** (🌐): Ejecuta scraping en TODAS las páginas con paginación (más lento pero más completo)
 - El scraping automático se ejecuta cada hora entre las 08:00 y 20:00 (UTC+2)
 """)

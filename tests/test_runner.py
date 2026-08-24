@@ -374,6 +374,260 @@ class TestRunScraper:
 
 
 # ============================================================
+# TESTS FOR dry_run_scraper()
+# ============================================================
+
+
+class TestDryRunScraper:
+    """Tests for dry_run_scraper() — preview mode, no DB writes."""
+
+    @pytest.mark.asyncio
+    async def test_dry_run_scraper_limits_to_default_5(
+        self, scraper_runner, mock_fuente, mock_db_session, raw_property_data
+    ):
+        """8 listing results should only enrich the first 5 by default."""
+        raw_data_list = [
+            {**raw_property_data, "url_original": f"https://example.com/prop/{i}"}
+            for i in range(8)
+        ]
+        with patch.object(scraper_runner, "_get_scraper") as mock_get_scraper:
+            mock_scraper = AsyncMock()
+            mock_scraper.scrape.return_value = raw_data_list
+            mock_get_scraper.return_value = mock_scraper
+
+            with patch("scraper.runner.get_detail_scraper") as mock_get_detail:
+                mock_detail = AsyncMock()
+                mock_detail.scrape_property_details.return_value = {
+                    "titulo": "Piso 3 hab",
+                    "precio": 150000,
+                    "fotos": [],
+                }
+                mock_get_detail.return_value = mock_detail
+
+                result = await scraper_runner.dry_run_scraper(mock_fuente)
+
+        assert result["encontradas"] == 8
+        assert result["muestreadas"] == 5
+        assert len(result["resultados"]) == 5
+        assert result["con_datos"] == 5
+
+    @pytest.mark.asyncio
+    async def test_dry_run_scraper_respects_custom_limit(
+        self, scraper_runner, mock_fuente, mock_db_session, raw_property_data
+    ):
+        """A custom limit caps how many properties are enriched."""
+        raw_data_list = [
+            {**raw_property_data, "url_original": f"https://example.com/prop/{i}"}
+            for i in range(8)
+        ]
+        with patch.object(scraper_runner, "_get_scraper") as mock_get_scraper:
+            mock_scraper = AsyncMock()
+            mock_scraper.scrape.return_value = raw_data_list
+            mock_get_scraper.return_value = mock_scraper
+
+            with patch("scraper.runner.get_detail_scraper") as mock_get_detail:
+                mock_detail = AsyncMock()
+                mock_detail.scrape_property_details.return_value = {
+                    "titulo": "Piso", "precio": 100000, "fotos": [],
+                }
+                mock_get_detail.return_value = mock_detail
+
+                result = await scraper_runner.dry_run_scraper(mock_fuente, limit=2)
+
+        assert result["muestreadas"] == 2
+        assert len(result["resultados"]) == 2
+
+    @pytest.mark.asyncio
+    async def test_dry_run_scraper_marks_missing_data_as_not_ok(
+        self, scraper_runner, mock_fuente, mock_db_session, raw_property_data
+    ):
+        """A property whose detail scrape yields no title/price is flagged ok=False."""
+        with patch.object(scraper_runner, "_get_scraper") as mock_get_scraper:
+            mock_scraper = AsyncMock()
+            mock_scraper.scrape.return_value = [raw_property_data]
+            mock_get_scraper.return_value = mock_scraper
+
+            with patch("scraper.runner.get_detail_scraper") as mock_get_detail:
+                mock_detail = AsyncMock()
+                mock_detail.scrape_property_details.return_value = {
+                    "url_original": raw_property_data["url_original"],
+                }
+                mock_get_detail.return_value = mock_detail
+
+                result = await scraper_runner.dry_run_scraper(mock_fuente)
+
+        assert result["con_datos"] == 0
+        assert result["resultados"][0]["ok"] is False
+
+    @pytest.mark.asyncio
+    async def test_dry_run_scraper_summarizes_photos(
+        self, scraper_runner, mock_fuente, mock_db_session, raw_property_data
+    ):
+        """Photo count and a 2-photo preview are reported per property."""
+        with patch.object(scraper_runner, "_get_scraper") as mock_get_scraper:
+            mock_scraper = AsyncMock()
+            mock_scraper.scrape.return_value = [raw_property_data]
+            mock_get_scraper.return_value = mock_scraper
+
+            with patch("scraper.runner.get_detail_scraper") as mock_get_detail:
+                mock_detail = AsyncMock()
+                mock_detail.scrape_property_details.return_value = {
+                    "titulo": "Piso",
+                    "precio": 100000,
+                    "fotos": [f"https://x.com/{i}.jpg" for i in range(6)],
+                }
+                mock_get_detail.return_value = mock_detail
+
+                result = await scraper_runner.dry_run_scraper(mock_fuente)
+
+        item = result["resultados"][0]
+        assert item["tiene_fotos"] is True
+        assert item["num_fotos"] == 6
+        assert len(item["fotos_preview"]) == 2
+
+    @pytest.mark.asyncio
+    async def test_dry_run_scraper_no_photos(
+        self, scraper_runner, mock_fuente, mock_db_session, raw_property_data
+    ):
+        """A property with no photos reports tiene_fotos=False and an empty preview."""
+        with patch.object(scraper_runner, "_get_scraper") as mock_get_scraper:
+            mock_scraper = AsyncMock()
+            mock_scraper.scrape.return_value = [raw_property_data]
+            mock_get_scraper.return_value = mock_scraper
+
+            with patch("scraper.runner.get_detail_scraper") as mock_get_detail:
+                mock_detail = AsyncMock()
+                mock_detail.scrape_property_details.return_value = {
+                    "titulo": "Piso", "precio": 100000,
+                }
+                mock_get_detail.return_value = mock_detail
+
+                result = await scraper_runner.dry_run_scraper(mock_fuente)
+
+        item = result["resultados"][0]
+        assert item["tiene_fotos"] is False
+        assert item["num_fotos"] == 0
+        assert item["fotos_preview"] == []
+
+    @pytest.mark.asyncio
+    async def test_dry_run_scraper_detail_error_does_not_raise(
+        self, scraper_runner, mock_fuente, mock_db_session, raw_property_data
+    ):
+        """A per-property detail-scrape failure is captured, not raised."""
+        with patch.object(scraper_runner, "_get_scraper") as mock_get_scraper:
+            mock_scraper = AsyncMock()
+            mock_scraper.scrape.return_value = [raw_property_data]
+            mock_get_scraper.return_value = mock_scraper
+
+            with patch("scraper.runner.get_detail_scraper") as mock_get_detail:
+                mock_detail = AsyncMock()
+                mock_detail.scrape_property_details.side_effect = Exception("boom")
+                mock_get_detail.return_value = mock_detail
+
+                result = await scraper_runner.dry_run_scraper(mock_fuente)
+
+        assert result["con_datos"] == 0
+        item = result["resultados"][0]
+        assert item["ok"] is False
+        assert item["error"] == "boom"
+
+    @pytest.mark.asyncio
+    async def test_dry_run_scraper_listing_error_returns_error_no_raise(
+        self, scraper_runner, mock_fuente, mock_db_session
+    ):
+        """A listing-scrape failure is captured in the report, not raised."""
+        with patch.object(scraper_runner, "_get_scraper") as mock_get_scraper:
+            mock_scraper = AsyncMock()
+            mock_scraper.scrape.side_effect = Exception("Network timeout")
+            mock_get_scraper.return_value = mock_scraper
+
+            result = await scraper_runner.dry_run_scraper(mock_fuente)
+
+        assert "error" in result
+        assert result["muestreadas"] == 0
+        assert result["resultados"] == []
+
+    @pytest.mark.asyncio
+    async def test_dry_run_scraper_invalid_fuente(self, scraper_runner):
+        """None fuente raises ValidationException, matching run_scraper()."""
+        with pytest.raises(ValidationException):
+            await scraper_runner.dry_run_scraper(None)
+
+    @pytest.mark.asyncio
+    async def test_dry_run_scraper_empty_listing(
+        self, scraper_runner, mock_fuente, mock_db_session
+    ):
+        """An empty listing produces a valid, empty report."""
+        with patch.object(scraper_runner, "_get_scraper") as mock_get_scraper:
+            mock_scraper = AsyncMock()
+            mock_scraper.scrape.return_value = []
+            mock_get_scraper.return_value = mock_scraper
+
+            result = await scraper_runner.dry_run_scraper(mock_fuente)
+
+        assert result["encontradas"] == 0
+        assert result["muestreadas"] == 0
+        assert result["con_datos"] == 0
+        assert result["resultados"] == []
+
+    @pytest.mark.asyncio
+    async def test_dry_run_scraper_does_not_touch_db(
+        self, scraper_runner, mock_fuente, mock_db_session, raw_property_data
+    ):
+        """Nothing is ever written to the DB session, unlike run_scraper()."""
+        with patch.object(scraper_runner, "_get_scraper") as mock_get_scraper:
+            mock_scraper = AsyncMock()
+            mock_scraper.scrape.return_value = [raw_property_data]
+            mock_get_scraper.return_value = mock_scraper
+
+            with patch("scraper.runner.get_detail_scraper") as mock_get_detail:
+                mock_detail = AsyncMock()
+                mock_detail.scrape_property_details.return_value = {
+                    "titulo": "Piso", "precio": 100000, "fotos": [],
+                }
+                mock_get_detail.return_value = mock_detail
+
+                await scraper_runner.dry_run_scraper(mock_fuente)
+
+        mock_db_session.add.assert_not_called()
+        mock_db_session.commit.assert_not_called()
+        mock_db_session.exec.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_dry_run_scraper_resolves_detail_scraper_via_factory(
+        self, scraper_runner, mock_db_session, raw_property_data
+    ):
+        """Any source's detail_scraper_type is resolved through detail_factory —
+        this is what makes the dry run work for any Fuente, not just one hardcoded
+        source name (the previous run_scraper() behavior)."""
+        import json
+
+        fuente = Fuente(
+            id=14,
+            nombre="Samper",
+            url="https://sampergestionesinmobiliarias.es/buscar.php",
+            tipo_scraper="generic",
+            activa=True,
+            notas=json.dumps({"detail_scraper_type": "samper"}),
+        )
+        with patch.object(scraper_runner, "_get_scraper") as mock_get_scraper:
+            mock_scraper = AsyncMock()
+            mock_scraper.scrape.return_value = [raw_property_data]
+            mock_get_scraper.return_value = mock_scraper
+
+            with patch("scraper.runner.get_detail_scraper") as mock_get_detail:
+                mock_detail = AsyncMock()
+                mock_detail.scrape_property_details.return_value = {
+                    "titulo": "Piso", "precio": 100000, "fotos": [],
+                }
+                mock_get_detail.return_value = mock_detail
+
+                await scraper_runner.dry_run_scraper(fuente)
+
+                assert mock_get_detail.call_args.args[0] == "samper"
+
+
+# ============================================================
 # INTEGRATION TESTS
 # ============================================================
 
