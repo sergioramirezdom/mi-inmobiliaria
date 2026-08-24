@@ -14,6 +14,7 @@ from scraper.puertopiso_scraper import PuertoPisoScraper
 from scraper.manual_scraper import ManualScraper
 from scraper.alonsaga_scraper import AlonsagaScraper
 from scraper.uriahomes_scraper import UriaHomesScraper
+from scraper.neopolis_scraper import NeopolisScraper
 from scraper.samper_scraper import SamperScraper
 from scraper.puerto_inmobiliaria import PuertoInmobiliariaScraper
 
@@ -29,6 +30,7 @@ EXPECTED_KEYS_TO_CLASSES = {
     "manual_auto": ManualScraper,
     "alonsaga": AlonsagaScraper,
     "uriahomes": UriaHomesScraper,
+    "neopolis": NeopolisScraper,
     "samper": SamperScraper,
 }
 

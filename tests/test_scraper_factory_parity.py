@@ -17,6 +17,7 @@ from scraper.uriahomes_scraper import UriaHomesScraper
 from scraper.jimenezruiz_scraper import JimenezRuizScraper
 from scraper.puerto_inmobiliaria import PuertoInmobiliariaScraper
 from scraper.paginated_scraper import PaginatedScraper
+from scraper.neopolis_scraper import NeopolisScraper
 
 
 def test_sold_checker_resolves_uriahomes_via_shared_factory():
@@ -33,11 +34,19 @@ def test_sold_checker_resolves_jimenezruiz_via_shared_factory():
     assert isinstance(scraper, JimenezRuizScraper)
 
 
+def test_sold_checker_resolves_neopolis_via_shared_factory():
+    """neopolis must resolve to NeopolisScraper, not the generic fallback."""
+    scraper = _get_scraper("neopolis", ScraperConfig())
+    assert isinstance(scraper, NeopolisScraper)
+    assert not isinstance(scraper, PuertoInmobiliariaScraper)
+
+
 @pytest.mark.parametrize(
     "detail_type,expected_class",
     [
         ("uriahomes", UriaHomesScraper),
         ("jimenezruiz", JimenezRuizScraper),
+        ("neopolis", NeopolisScraper),
     ],
 )
 async def test_paginated_scraper_resolves_same_class_as_sold_checker(

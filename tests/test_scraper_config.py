@@ -283,3 +283,26 @@ class TestIntegration:
         config = ScraperConfig.from_fuente_notas(None)
         assert config.timeout == 30
         assert config.auto_detect is True
+
+    def test_neopolis_notas_roundtrip(self):
+        """The NEOPOLIS Fuente.notas JSON must round-trip into a ScraperConfig
+        with only `pag=N` pagination verified live (use_results_per_page=False)."""
+        notas_json = json.dumps({
+            "selectors": {"link_href_contains": "/ficha/"},
+            "detail_scraper_type": "neopolis",
+            "pagination_param": "pag",
+            "pagination_start": 1,
+            "pagination_skip_first": False,
+            "use_results_per_page": False,
+            "max_pages": 10,
+            "timeout": 120,
+            "retries": 2,
+            "verify_ssl": True,
+        })
+
+        config = ScraperConfig.from_fuente_notas(notas_json)
+        assert config.detail_scraper_type == "neopolis"
+        assert config.pagination_param == "pag"
+        assert config.use_results_per_page is False
+        assert config.selectors.link_href_contains == "/ficha/"
+        assert config.max_pages == 10
