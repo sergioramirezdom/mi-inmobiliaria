@@ -149,3 +149,53 @@ async def test_alquiler_early_return():
     assert data["activa"] is False
     assert data["estado"] == "Alquiler"
     assert data["tipo_operacion"] == "alquiler"
+
+
+# ── listing-page link extraction (regression: real hrefs are relative) ────
+
+
+def test_listing_link_selector_matches_real_relative_hrefs():
+    """NEOPOLIS listing-page hrefs are relative and have NO leading slash
+    (e.g. "ficha/piso/...", not "/ficha/piso/..."). The stored
+    `link_href_contains` config must match real markup, or GenericScraper
+    finds zero properties (regression: live run found 0 properties because
+    the value was "/ficha/", which is never a substring of "ficha/...")."""
+    from scraper.config import ScraperConfig
+    from scraper.generic import GenericScraper
+
+    listing_html = """
+    <html><body>
+      <a href="ficha/piso/el-puerto-de-santa-maria/crevillet/4131/29204678/es/">ver</a>
+      <a href="ficha/piso/el-puerto-de-santa-maria/crevillet/4131/29204678/es/">img</a>
+      <a href="#">paginación</a>
+      <a href="venta/">Venta</a>
+    </body></html>
+    """
+
+    config = ScraperConfig.from_dict({"selectors": {"link_href_contains": "ficha/"}})
+    scraper = GenericScraper(config)
+    elements = scraper._parse_properties(listing_html)
+
+    hrefs = {el.get("href") for el in elements}
+    assert hrefs == {
+        "ficha/piso/el-puerto-de-santa-maria/crevillet/4131/29204678/es/"
+    }
+
+
+def test_seed_script_uses_link_selector_matching_real_relative_hrefs():
+    """scripts/add_neopolis_fuente.py must store a link_href_contains value
+    that actually matches NEOPOLIS's real relative hrefs (no leading slash),
+    otherwise the live listing scraper silently finds 0 properties."""
+    import json
+    import sys as _sys
+    from pathlib import Path as _Path
+
+    scripts_dir = _Path(__file__).parent.parent / "scripts"
+    _sys.path.insert(0, str(scripts_dir))
+    import add_neopolis_fuente
+
+    notas = json.loads(json.dumps(add_neopolis_fuente.NOTAS_CONFIG))
+    link_selector = notas["selectors"]["link_href_contains"]
+
+    real_href = "ficha/piso/el-puerto-de-santa-maria/crevillet/4131/29204678/es/"
+    assert link_selector in real_href
