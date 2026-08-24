@@ -18,6 +18,7 @@ from .exceptions import ScraperException, ValidationException
 from .generic import GenericScraper
 from .puerto_inmobiliaria import PuertoInmobiliariaScraper
 from .paginated_scraper import PaginatedScraper
+from .detail_factory import get_detail_scraper
 from .zona_normalizer import CatalogoInvalidoError
 
 
@@ -128,6 +129,124 @@ class ScraperRunner:
             self.logger.error(f"❌ Scraper failed for {fuente.nombre}: {e}")
             stats["error"] = str(e)
             return stats
+
+    async def dry_run_scraper(self, fuente: Fuente, limit: int = 5) -> dict:
+        """
+        Preview-scrape a fuente WITHOUT writing anything to the database.
+
+        Fetches the listing page and enriches at most `limit` properties
+        via the fuente's configured detail scraper — resolved through the
+        shared `detail_factory` registry, so this works for ANY source
+        (unlike the old `run_scraper()` enrichment, which only special-cased
+        "Puerto Inmobiliaria"). No dedup check, no normalize, no save.
+
+        Args:
+            fuente: Source to test
+            limit: Max properties to enrich with detail data (default 5)
+
+        Returns:
+            dict with: fuente_id, nombre, encontradas (total listing URLs
+            found), muestreadas (how many were enriched), con_datos (how
+            many actually returned title/price), resultados (per-property
+            preview: url, titulo, precio, superficie_m2, habitaciones,
+            tiene_fotos, num_fotos, fotos_preview (max 2), ok, error),
+            tiempo_segundos, and error (only if the listing scrape itself failed).
+        """
+        if not fuente:
+            raise ValidationException("Fuente cannot be None")
+
+        start_time = time.time()
+        report = {
+            "fuente_id": fuente.id,
+            "nombre": fuente.nombre,
+            "encontradas": 0,
+            "muestreadas": 0,
+            "con_datos": 0,
+            "resultados": [],
+            "tiempo_segundos": 0.0,
+        }
+
+        try:
+            self.logger.info(f"🧪 Dry-run scraping for {fuente.nombre}...")
+
+            scraper = self._get_scraper(fuente)
+            raw_data_list = await scraper.scrape(fuente)
+            report["encontradas"] = len(raw_data_list)
+
+            fuente_config = (
+                ScraperConfig.from_fuente_notas(fuente.notas)
+                if fuente.notas
+                else self.config
+            )
+            detail_scraper = get_detail_scraper(
+                fuente_config.detail_scraper_type, fuente_config
+            )
+
+            muestra = raw_data_list[: max(limit, 0)]
+            report["muestreadas"] = len(muestra)
+
+            for raw_data in muestra:
+                url_original = raw_data.get("url_original")
+                item = {
+                    "url": url_original,
+                    "titulo": None,
+                    "precio": None,
+                    "superficie_m2": None,
+                    "habitaciones": None,
+                    "tiene_fotos": False,
+                    "num_fotos": 0,
+                    "fotos_preview": [],
+                    "ok": False,
+                    "error": None,
+                }
+                if not url_original:
+                    item["error"] = "Sin URL"
+                    report["resultados"].append(item)
+                    continue
+
+                try:
+                    details = await detail_scraper.scrape_property_details(url_original)
+                    # "ok" reflects the DETAIL scrape only — the listing page's
+                    # own titulo (often a generic placeholder) doesn't count as
+                    # real data obtained.
+                    detail_titulo = details.get("titulo")
+                    precio = details.get("precio")
+                    fotos = details.get("fotos") or []
+                    item.update(
+                        {
+                            "titulo": detail_titulo or raw_data.get("titulo"),
+                            "precio": precio,
+                            "superficie_m2": details.get("superficie_m2"),
+                            "habitaciones": details.get("habitaciones"),
+                            "tiene_fotos": len(fotos) > 0,
+                            "num_fotos": len(fotos),
+                            "fotos_preview": fotos[:2],
+                            "ok": bool(detail_titulo or precio),
+                        }
+                    )
+                    if item["ok"]:
+                        report["con_datos"] += 1
+                except Exception as e:
+                    self.logger.warning(f"⚠️ Dry-run detail error for {url_original}: {e}")
+                    item["error"] = str(e)
+
+                report["resultados"].append(item)
+
+            elapsed = time.time() - start_time
+            report["tiempo_segundos"] = round(elapsed, 2)
+            self.logger.info(
+                f"✓ Dry-run completed for {fuente.nombre}: "
+                f"encontradas={report['encontradas']}, muestreadas={report['muestreadas']}, "
+                f"con_datos={report['con_datos']}"
+            )
+            return report
+
+        except Exception as e:
+            elapsed = time.time() - start_time
+            report["tiempo_segundos"] = round(elapsed, 2)
+            self.logger.error(f"❌ Dry-run failed for {fuente.nombre}: {e}")
+            report["error"] = str(e)
+            return report
 
     async def run_paginated_scraper(
         self,
