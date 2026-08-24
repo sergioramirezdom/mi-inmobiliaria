@@ -30,7 +30,7 @@ def test_notas_config_round_trips_into_scraper_config():
     assert config.detail_scraper_type == "neopolis"
     assert config.pagination_param == "pag"
     assert config.use_results_per_page is False
-    assert config.selectors.link_href_contains == "/ficha/"
+    assert config.selectors.link_href_contains == "ficha/"
     assert config.max_pages == 10
 
 

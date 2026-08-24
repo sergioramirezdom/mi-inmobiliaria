@@ -38,7 +38,10 @@ NEOPOLIS_URL = (
 # use_results_per_page=False: solo la paginación pag=N se verificó en vivo
 # (Fase 0); &res=N nunca fue probado y podría truncar u obtener un 500.
 NOTAS_CONFIG = {
-    "selectors": {"link_href_contains": "/ficha/"},
+    # NOTE: listing-page hrefs are relative and have NO leading slash
+    # (e.g. "ficha/piso/...", not "/ficha/piso/..."). A leading-slash value
+    # here matches zero properties (confirmed live 2026-08-24: 0 found).
+    "selectors": {"link_href_contains": "ficha/"},
     "detail_scraper_type": "neopolis",
     "pagination_param": "pag",
     "pagination_start": 1,

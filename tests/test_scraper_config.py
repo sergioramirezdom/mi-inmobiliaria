@@ -288,7 +288,7 @@ class TestIntegration:
         """The NEOPOLIS Fuente.notas JSON must round-trip into a ScraperConfig
         with only `pag=N` pagination verified live (use_results_per_page=False)."""
         notas_json = json.dumps({
-            "selectors": {"link_href_contains": "/ficha/"},
+            "selectors": {"link_href_contains": "ficha/"},
             "detail_scraper_type": "neopolis",
             "pagination_param": "pag",
             "pagination_start": 1,
@@ -304,5 +304,5 @@ class TestIntegration:
         assert config.detail_scraper_type == "neopolis"
         assert config.pagination_param == "pag"
         assert config.use_results_per_page is False
-        assert config.selectors.link_href_contains == "/ficha/"
+        assert config.selectors.link_href_contains == "ficha/"
         assert config.max_pages == 10
