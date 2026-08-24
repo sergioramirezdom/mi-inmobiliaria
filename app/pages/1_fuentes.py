@@ -25,6 +25,7 @@ DETAIL_SCRAPER_OPTIONS = [
     ("Jiménez Ruiz", "jimenezruiz"),
     ("Puerto Piso", "puertopiso"),
     ("Alonsaga", "alonsaga"),
+    ("Samper", "samper"),
 ]
 
 DETAIL_SCRAPER_LABELS = {v: label for label, v in DETAIL_SCRAPER_OPTIONS}
@@ -103,6 +104,19 @@ SCRAPER_CONFIG_TEMPLATES = {
         "pagination_start": 1,
         "pagination_skip_first": True,
         "use_results_per_page": False,
+    },
+    "samper": {
+        "detail_scraper_type": "samper",
+        # Sin municipio_filter: solo hay link_href_contains (sin selector de
+        # title), GenericScraper cae en "Sin título" en el listado y el
+        # filtro descartaría el 100% de los resultados. La URL ya filtra
+        # por El Puerto de Santa María en servidor.
+        "max_pages": 1,
+        "pagination_param": "pag",
+        "pagination_start": 1,
+        "pagination_skip_first": True,
+        "use_results_per_page": False,
+        "selectors": {"link_href_contains": "/Venta-"},
     },
 }
 
