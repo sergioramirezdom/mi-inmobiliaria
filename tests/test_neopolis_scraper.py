@@ -68,7 +68,9 @@ async def test_scrape_property_details_full_fields():
     assert data["barrio"] == "Crevillet"
     assert data["fotos"]
     assert all(f.startswith("https://fotos15.apinmo.com") for f in data["fotos"])
-    assert "fecha_publicacion" in data
+    # `fecha_publicacion` is now authoritative for the real publication date
+    # (app/listing_date.py resolver); scrapers must not stamp scrape-time here.
+    assert "fecha_publicacion" not in data
     assert data["tipo_operacion"] == "venta"
 
 

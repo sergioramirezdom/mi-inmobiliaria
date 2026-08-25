@@ -6,6 +6,7 @@ from sqlalchemy import func, or_
 from sqlmodel import select
 
 from db.models import Propiedad, PrecioHistorico
+from listing_date import fecha_listado, fecha_listado_col
 
 # label → nombre de campo en Propiedad (el orden define el orden de los chips)
 CARACTERISTICAS = {
@@ -22,11 +23,11 @@ CARACTERISTICAS = {
 }
 
 SORT_OPTIONS = {
-    "Más reciente": ("fecha_scraping", "desc"),
-    "Más antiguo": ("fecha_scraping", "asc"),
-    "Precio (menor)": ("precio", "asc"),
-    "Precio (mayor)": ("precio", "desc"),
-    "m² (mayor)": ("superficie_m2", "desc"),
+    "Más reciente": (fecha_listado_col(), "desc"),
+    "Más antiguo": (fecha_listado_col(), "asc"),
+    "Precio (menor)": (Propiedad.precio, "asc"),
+    "Precio (mayor)": (Propiedad.precio, "desc"),
+    "m² (mayor)": (Propiedad.superficie_m2, "desc"),
 }
 
 RESULT_LIMIT = 300
@@ -88,8 +89,7 @@ def build_stmt(tab: str, filters: dict, sort_key: str):
     stmt = select(Propiedad)
     for cond in tab_conditions(tab) + filter_conditions(filters):
         stmt = stmt.where(cond)
-    field, direction = SORT_OPTIONS[sort_key]
-    col = getattr(Propiedad, field)
+    col, direction = SORT_OPTIONS[sort_key]
     stmt = stmt.order_by(col.desc() if direction == "desc" else col.asc())
     return stmt.limit(RESULT_LIMIT)
 
@@ -137,8 +137,9 @@ def prop_to_dict(
             if precio_max > prop.precio:
                 bajada = round(precio_max - prop.precio)
     dias = None
-    if prop.fecha_scraping:
-        dias = (datetime.now(UTC).replace(tzinfo=None) - prop.fecha_scraping).days
+    _fecha = fecha_listado(prop)
+    if _fecha:
+        dias = (datetime.now(UTC).replace(tzinfo=None) - _fecha).days
     return {
         "id": prop.id,
         "titulo": prop.titulo,

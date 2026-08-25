@@ -13,7 +13,6 @@ with its own users.
 
 import logging
 import re
-from datetime import datetime
 from typing import Any, Optional
 
 import httpx
@@ -94,8 +93,6 @@ class NeopolisScraper:
             self._extract_caracteristicas(soup, data)
             self._extract_amenidades(soup, data)
             self._extract_certificado_energetico(soup, data)
-
-            data["fecha_publicacion"] = datetime.utcnow().isoformat()
 
             if not data.get("barrio"):
                 data["barrio"] = (

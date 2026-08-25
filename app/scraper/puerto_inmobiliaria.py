@@ -3,7 +3,6 @@
 import re
 import logging
 from typing import Optional, List, Dict, Any
-from datetime import datetime
 from bs4 import BeautifulSoup
 
 from .exceptions import ParsingException
@@ -143,9 +142,6 @@ class PuertoInmobiliariaScraper:
             amenities = self._extract_amenities(soup)
             if amenities:
                 enriched_data["amenidades"] = amenities
-
-            # Add detection date (when we scraped it)
-            enriched_data["fecha_publicacion"] = datetime.utcnow().isoformat()
 
             if not enriched_data.get("barrio"):
                 enriched_data["barrio"] = _zona_from_url(property_url) or _zona_from_html(content, soup)
