@@ -97,6 +97,23 @@ def test_build_stmt_unknown_sort_raises():
         build_stmt("todas", {}, "no existe")
 
 
+def test_build_stmt_fecha_sort_uses_coalesce_resolver():
+    """Sort options for fecha use fecha_listado_col() (COALESCE), not the raw
+    field-name lookup, so a manually corrected fecha_publicacion reorders."""
+    stmt = build_stmt("todas", {}, "Más reciente")
+    sql = str(stmt).lower()
+    assert "coalesce" in sql
+
+    stmt2 = build_stmt("todas", {}, "Más antiguo")
+    sql2 = str(stmt2).lower()
+    assert "coalesce" in sql2
+
+
+def test_build_stmt_precio_sort_does_not_use_coalesce():
+    stmt = build_stmt("todas", {}, "Precio (menor)")
+    assert "coalesce" not in str(stmt).lower()
+
+
 # ── precio_por_m2 ─────────────────────────────────────────────────────
 
 def test_precio_por_m2():
@@ -153,6 +170,22 @@ def test_prop_to_dict_bajada_only_when_lower():
 def test_prop_to_dict_manual_badge():
     d = prop_to_dict(_prop(fuente_id=99), fuente_manual_id=99)
     assert d["es_manual"] is True
+
+
+def test_prop_to_dict_dias_usa_fecha_publicacion_cuando_esta_corregida():
+    """`dias` (badge de días en mercado) debe resolver vía fecha_publicacion
+    cuando el usuario la ha corregido manualmente, no fecha_scraping crudo."""
+    fecha_publicacion = datetime.utcnow() - timedelta(days=20)
+    d = prop_to_dict(_prop(
+        fecha_scraping=datetime.utcnow() - timedelta(days=2),
+        fecha_publicacion=fecha_publicacion,
+    ))
+    assert d["dias"] == 20
+
+
+def test_prop_to_dict_dias_usa_fecha_scraping_sin_correccion():
+    d = prop_to_dict(_prop(fecha_scraping=datetime.utcnow() - timedelta(days=5)))
+    assert d["dias"] == 5
 
 
 # ── counts_from_rows ──────────────────────────────────────────────────

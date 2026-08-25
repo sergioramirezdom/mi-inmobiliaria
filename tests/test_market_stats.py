@@ -33,6 +33,7 @@ def _prop(**kw):
         barrio="Centro", municipio="El Puerto", origen_web="x.com",
         url_original="https://x.com/1", activa=True, favorita=False,
         descartada=False, fecha_scraping=NOW - timedelta(days=10), fecha_baja=None,
+        fecha_publicacion=None,
     )
     base.update(kw)
     return base
@@ -59,6 +60,20 @@ def test_dfs_empty_safe():
     assert list(hist_to_df([]).columns) == ["propiedad_id", "precio", "fecha"]
 
 
+def test_props_to_df_deriva_fecha_listado():
+    """props_to_df debe exponer `fecha_listado` (resolver: fecha_publicacion
+    si está, si no fecha_scraping) para que las KPIs no lean fecha_scraping
+    directamente."""
+    props = [
+        _prop(id=1, fecha_scraping=NOW - timedelta(days=5), fecha_publicacion=None),
+        _prop(id=2, fecha_scraping=NOW - timedelta(days=5), fecha_publicacion=NOW - timedelta(days=50)),
+    ]
+    df = props_to_df(props)
+    assert "fecha_listado" in df.columns
+    assert df.loc[df["id"] == 1, "fecha_listado"].iloc[0] == df.loc[df["id"] == 1, "fecha_scraping"].iloc[0]
+    assert df.loc[df["id"] == 2, "fecha_listado"].iloc[0] == pd.Timestamp(NOW - timedelta(days=50))
+
+
 # ── kpis_pulso ───────────────────────────────────────────────────────
 
 def test_kpi_nuevas_delta_30_vs_30():
@@ -69,6 +84,26 @@ def test_kpi_nuevas_delta_30_vs_30():
     )
     k = kpis_pulso(props_to_df(props), hist_to_df([]), NOW)
     assert k["nuevas"] == {"valor": 3, "delta": 1}
+
+
+def test_kpi_nuevas_usa_fecha_publicacion_corregida():
+    """Una fecha_publicacion corregida fuera de la ventana actual excluye de
+    'nuevas', aunque fecha_scraping esté dentro de los 30 días."""
+    props = [
+        _prop(id=1, fecha_scraping=NOW - timedelta(days=5), fecha_publicacion=NOW - timedelta(days=100)),
+        _prop(id=2, fecha_scraping=NOW - timedelta(days=5)),  # sin corrección: cuenta
+    ]
+    k = kpis_pulso(props_to_df(props), hist_to_df([]), NOW)
+    assert k["nuevas"]["valor"] == 1
+
+
+def test_kpi_dias_mercado_usa_fecha_publicacion_corregida():
+    props = [
+        _prop(id=1, activa=False, fecha_scraping=NOW - timedelta(days=30),
+              fecha_publicacion=NOW - timedelta(days=50), fecha_baja=NOW - timedelta(days=10)),  # 40 días reales
+    ]
+    k = kpis_pulso(props_to_df(props), hist_to_df([]), NOW)
+    assert k["dias_mercado"]["valor"] == 40.0
 
 
 def test_kpi_ventas_por_fecha_baja():
@@ -140,6 +175,14 @@ def test_serie_semanal_doce_filas_con_ceros():
     assert len(s) == 12
     assert s["nuevas"].sum() == 1
     assert (s["nuevas"] >= 0).all()
+
+
+def test_serie_semanal_usa_fecha_publicacion_corregida():
+    """Una entrada con fecha_publicacion corregida fuera de las 12 semanas
+    mostradas no debe contarse, aunque fecha_scraping caiga dentro."""
+    props = [_prop(id=1, fecha_scraping=NOW - timedelta(days=2), fecha_publicacion=NOW - timedelta(days=200))]
+    s = serie_semanal_entradas(props_to_df(props), NOW, semanas=12)
+    assert s["nuevas"].sum() == 0
 
 
 def test_serie_mensual_ventas():

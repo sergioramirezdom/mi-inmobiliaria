@@ -7,6 +7,8 @@ Heurística transparente: cada ajuste lleva su justificación en texto.
 import statistics
 from datetime import datetime, timedelta
 
+from listing_date import fecha_listado
+
 VENTANA_VENDIDAS_DIAS = 180
 MIN_COMPARABLES = 4
 TOLERANCIA_SUPERFICIE = 0.4
@@ -90,13 +92,14 @@ def calcular_ajustes(favorita: dict, comparables: list, now: datetime) -> list:
     """Ajustes de presión, cada uno con concepto, pct (<= 0) y detalle justificado."""
     ajustes = []
 
-    dias_fav = (now - favorita["fecha_scraping"]).days if favorita.get("fecha_scraping") else None
+    _fecha_fav = fecha_listado(favorita)
+    dias_fav = (now - _fecha_fav).days if _fecha_fav else None
     vendidos = [
         c for c in comparables
-        if not c.get("activa") and c.get("fecha_baja") and c.get("fecha_scraping")
+        if not c.get("activa") and c.get("fecha_baja") and fecha_listado(c)
     ]
     if dias_fav is not None and vendidos:
-        ref = statistics.median((c["fecha_baja"] - c["fecha_scraping"]).days for c in vendidos)
+        ref = statistics.median((c["fecha_baja"] - fecha_listado(c)).days for c in vendidos)
         exceso = dias_fav - ref
         if exceso >= 30:
             pct = -min(PCT_POR_30_DIAS * (exceso // 30), TOPE_DIAS_PCT)

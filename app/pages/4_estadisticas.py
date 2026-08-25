@@ -15,6 +15,7 @@ from db.models import Propiedad, PrecioHistorico
 from ui import market_stats as ms
 from ui import notarial_stats as ns
 from ui import offer_advisor as oa
+from listing_date import fecha_listado
 from ui.chart_theme import PLOTLY_CONFIG, bar_chart, line_chart, offer_range_chart
 from ui.theme import COLORS, inject_theme
 
@@ -43,7 +44,7 @@ def fetch_props() -> list[dict]:
             "municipio": p.municipio, "origen_web": p.origen_web,
             "url_original": p.url_original, "activa": p.activa, "favorita": p.favorita,
             "descartada": p.descartada, "fecha_scraping": p.fecha_scraping,
-            "fecha_baja": p.fecha_baja,
+            "fecha_publicacion": p.fecha_publicacion, "fecha_baja": p.fecha_baja,
         } for p in rows]
 
 
@@ -310,8 +311,8 @@ def render_ofertas(props: list, now):
         "Precio": c["precio"],
         "€/m²": round(c["precio"] / c["superficie_m2"]),
         "Estado": "Activa" if c["activa"] else "Vendida",
-        "Días en mercado": (c["fecha_baja"] - c["fecha_scraping"]).days
-        if not c["activa"] and c["fecha_baja"] and c["fecha_scraping"] else None,
+        "Días en mercado": (c["fecha_baja"] - fecha_listado(c)).days
+        if not c["activa"] and c["fecha_baja"] and fecha_listado(c) else None,
         "Anuncio": c["url_original"],
     } for c in comparables])
     st.dataframe(

@@ -26,6 +26,7 @@ def _prop(**kw):
         barrio="Centro", municipio="El Puerto", origen_web="x.com",
         url_original="https://x.com/1", activa=True, favorita=False,
         descartada=False, fecha_scraping=NOW - timedelta(days=10), fecha_baja=None,
+        fecha_publicacion=None,
     )
     base.update(kw)
     return base
@@ -147,6 +148,39 @@ def test_ajuste_dias_mercado_con_tope():
     ajustes = calcular_ajustes(fav, comps, NOW)
     dias = next(a for a in ajustes if a["concepto"] == "Tiempo en mercado")
     assert dias["pct"] == -5.0  # exceso 370 días -> 12*(-1%) pero tope -5%
+
+
+def test_ajuste_dias_fav_usa_fecha_publicacion_corregida():
+    """`dias_fav` (días anunciada de la favorita) debe resolver vía
+    fecha_publicacion cuando el usuario la ha corregido manualmente."""
+    fav = _prop(
+        id=100, precio=200_000.0,
+        fecha_scraping=NOW - timedelta(days=10),
+        fecha_publicacion=NOW - timedelta(days=400),
+    )
+    comps = [
+        _prop(id=1, activa=False,
+              fecha_scraping=NOW - timedelta(days=100), fecha_baja=NOW - timedelta(days=70)),  # 30 días
+    ] + _universo_nivel1(3)
+    ajustes = calcular_ajustes(fav, comps, NOW)
+    dias = next(a for a in ajustes if a["concepto"] == "Tiempo en mercado")
+    assert "400 días" in dias["detalle"]
+
+
+def test_ajuste_dias_comparable_vendido_usa_fecha_publicacion_corregida():
+    """El cálculo de referencia (días que tardaron en venderse los
+    comparables) debe usar fecha_publicacion del comparable si está
+    corregida, no fecha_scraping crudo."""
+    fav = _prop(id=100, precio=200_000.0, fecha_scraping=NOW - timedelta(days=400))
+    comps = [
+        _prop(id=1, activa=False,
+              fecha_scraping=NOW - timedelta(days=10),  # sin corrección: 30 días parecería poco
+              fecha_publicacion=NOW - timedelta(days=100),  # corregido: 70 días reales
+              fecha_baja=NOW - timedelta(days=30)),
+    ] + _universo_nivel1(3)
+    ajustes = calcular_ajustes(fav, comps, NOW)
+    dias = next(a for a in ajustes if a["concepto"] == "Tiempo en mercado")
+    assert "70 días" in dias["detalle"]
 
 
 def test_ajuste_dias_sin_vendidas_referencia_no_aplica():

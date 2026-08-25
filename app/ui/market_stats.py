@@ -7,6 +7,8 @@ from datetime import datetime, timedelta
 
 import pandas as pd
 
+from listing_date import with_fecha_listado
+
 MIN_ACTIVAS_BARRIO = 3
 OTROS = "Otros"
 SIN_ZONA = "Sin zona"
@@ -20,6 +22,7 @@ def props_to_df(props: list) -> pd.DataFrame:
         return df
     df["fecha_scraping"] = pd.to_datetime(df["fecha_scraping"])
     df["fecha_baja"] = pd.to_datetime(df["fecha_baja"])
+    df = with_fecha_listado(df)
     df["precio_m2"] = df.apply(
         lambda r: r["precio"] / r["superficie_m2"]
         if pd.notna(r["precio"]) and pd.notna(r["superficie_m2"]) and r["superficie_m2"] > 0
@@ -65,7 +68,7 @@ def _dias_mercado_mediano(vendidas: pd.DataFrame, start, end):
     v = vendidas[(vendidas["fecha_baja"] >= start) & (vendidas["fecha_baja"] < end)]
     if v.empty:
         return None
-    dias = (v["fecha_baja"] - v["fecha_scraping"]).dt.days.clip(lower=0)
+    dias = (v["fecha_baja"] - v["fecha_listado"]).dt.days.clip(lower=0)
     return float(dias.median())
 
 
@@ -75,7 +78,7 @@ def precio_m2_mediano_en(df: pd.DataFrame, hist_df: pd.DataFrame, fecha):
     if hist_df.empty or df.empty:
         return None
     vivas = df[
-        (df["fecha_scraping"] <= fecha)
+        (df["fecha_listado"] <= fecha)
         & (df["fecha_baja"].isna() | (df["fecha_baja"] > fecha))
         & df["superficie_m2"].notna()
         & (df["superficie_m2"] > 0)
@@ -103,8 +106,8 @@ def kpis_pulso(df: pd.DataFrame, hist_df: pd.DataFrame, now: datetime) -> dict:
         }
 
     out = {}
-    n_act = _count_between(df["fecha_scraping"], d30, now)
-    n_prev = _count_between(df["fecha_scraping"], d60, d30)
+    n_act = _count_between(df["fecha_listado"], d30, now)
+    n_prev = _count_between(df["fecha_listado"], d60, d30)
     out["nuevas"] = {"valor": n_act, "delta": n_act - n_prev}
 
     vendidas = df[(df["activa"] == False) & df["fecha_baja"].notna()]
@@ -163,7 +166,7 @@ def serie_semanal_entradas(df: pd.DataFrame, now: datetime, semanas: int = 12) -
     idx = pd.date_range(end=semana_actual, periods=semanas, freq="7D")
     if df.empty:
         return pd.DataFrame({"semana": idx, "nuevas": [0] * semanas})
-    inicios = df["fecha_scraping"].dt.to_period("W").dt.start_time
+    inicios = df["fecha_listado"].dt.to_period("W").dt.start_time
     counts = inicios.value_counts()
     return pd.DataFrame({"semana": idx, "nuevas": [int(counts.get(s, 0)) for s in idx]})
 
@@ -284,7 +287,7 @@ def tabla_zonas(df: pd.DataFrame, hist_df: pd.DataFrame, now: datetime) -> pd.Da
             & g["fecha_baja"].notna()
             & (g["fecha_baja"] >= now - timedelta(days=VENTANA_VENDIDAS_DIAS))
         ]
-        dias = (vend["fecha_baja"] - vend["fecha_scraping"]).dt.days.clip(lower=0)
+        dias = (vend["fecha_baja"] - vend["fecha_listado"]).dt.days.clip(lower=0)
         con_bajada = act[act["precio_anterior"].notna() & (act["precio_anterior"] > act["precio"])]
         m2 = act["precio_m2"].dropna().median()
         pm = act["precio"].dropna().median()

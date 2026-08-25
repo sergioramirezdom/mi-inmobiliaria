@@ -3,7 +3,6 @@
 import re
 import logging
 from typing import Optional, Any
-from datetime import datetime
 from bs4 import BeautifulSoup
 
 from .exceptions import ParsingException
@@ -136,8 +135,6 @@ class MobiliaScraper:
                         amenidades.append(amenidad)
             if amenidades:
                 data["amenidades"] = amenidades
-
-            data["fecha_publicacion"] = datetime.utcnow().isoformat()
 
             if not data.get("barrio"):
                 data["barrio"] = _zona_from_url(property_url) or _zona_from_html(content, soup)
