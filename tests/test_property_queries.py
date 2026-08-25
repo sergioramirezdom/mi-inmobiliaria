@@ -160,6 +160,14 @@ def test_prop_to_dict_basics():
     assert d["url"] == "https://example.com/1"
 
 
+def test_prop_to_dict_emits_excluida_from_flag():
+    d = prop_to_dict(_prop(excluir_de_estadisticas=True))
+    assert d["excluida"] is True
+
+    d2 = prop_to_dict(_prop(excluir_de_estadisticas=False))
+    assert d2["excluida"] is False
+
+
 def test_prop_to_dict_bajada_only_when_lower():
     d = prop_to_dict(_prop(precio_anterior=195_000.0))
     assert d["bajada"] == 6_000

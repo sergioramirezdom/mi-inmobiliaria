@@ -15,6 +15,7 @@ from db.models import Propiedad, PrecioHistorico
 from ui import market_stats as ms
 from ui import notarial_stats as ns
 from ui import offer_advisor as oa
+from ui.property_queries import no_excluidas_clause
 from listing_date import fecha_listado
 from ui.chart_theme import PLOTLY_CONFIG, bar_chart, line_chart, offer_range_chart
 from ui.theme import COLORS, inject_theme
@@ -35,7 +36,7 @@ _MESES_ABREV = {1: "ene", 2: "feb", 3: "mar", 4: "abr", 5: "may", 6: "jun",
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_props() -> list[dict]:
     with Session(engine) as session:
-        rows = session.exec(select(Propiedad)).all()
+        rows = session.exec(select(Propiedad).where(no_excluidas_clause())).all()
         return [{
             "id": p.id, "titulo": p.titulo, "precio": p.precio,
             "precio_anterior": p.precio_anterior, "superficie_m2": p.superficie_m2,
@@ -51,7 +52,13 @@ def fetch_props() -> list[dict]:
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_hist() -> list[dict]:
     with Session(engine) as session:
-        rows = session.exec(select(PrecioHistorico)).all()
+        rows = session.exec(
+            select(PrecioHistorico).where(
+                PrecioHistorico.propiedad_id.in_(
+                    select(Propiedad.id).where(no_excluidas_clause())
+                )
+            )
+        ).all()
         return [{"propiedad_id": h.propiedad_id, "precio": h.precio, "fecha": h.fecha}
                 for h in rows]
 

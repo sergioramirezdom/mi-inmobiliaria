@@ -20,6 +20,25 @@ from utils.calculadora import (
 )
 
 
+def nav_step(state: dict, delta: int) -> dict | None:
+    """Pure, DB-free step helper for the edit dialog's sequential navigation.
+
+    `state` = {"ids": [page-scoped property ids...], "idx": current index}.
+    Returns the new state, clamped at the first/last index (no wraparound
+    across pages), or None when the current index no longer resolves to a
+    valid id in `ids` (e.g. the property was removed from the page's live
+    list mid-navigation, such as by being marked excluded) — the caller
+    should close the dialog in that case.
+    """
+    ids = state.get("ids") or []
+    idx = state.get("idx", 0)
+    if not ids or idx < 0 or idx >= len(ids):
+        return None
+    new_idx = idx + delta
+    new_idx = max(0, min(new_idx, len(ids) - 1))
+    return {"ids": ids, "idx": new_idx}
+
+
 def get_or_create_fuente_manual(session) -> int:
     from sqlmodel import select
     from db.models import Fuente
@@ -127,10 +146,63 @@ def add_url_dialog(on_write=None):
             st.error(f"Error al guardar: {e}")
 
 
+def _mark_excluida_action(session, propiedad_id: int, excluir: bool, now=None):
+    """Thin wrapper around PropiedadCRUD.marcar_excluida so the dialog's
+    mark/unmark button handler is testable in isolation."""
+    return PropiedadCRUD.marcar_excluida(session, propiedad_id, excluir, now=now)
+
+
 @st.dialog("✏️ Editar propiedad", width="large")
-def edit_property_dialog(prop, on_write=None):
-    """Modal de edición de propiedad."""
+def edit_property_dialog(prop, on_write=None, nav=None):
+    """Modal de edición de propiedad.
+
+    `nav` (Propiedades 2.0 only — `None` in the v1 page, which keeps
+    today's behaviour): `{"ids": [page-scoped ids], "idx": current index}`.
+    When set, shows previous/next controls scoped to the page the dialog
+    was opened from, and auto-advances to the next property on save.
+    """
     st.caption(f"🔗 {prop.url_original[:80]}...")
+
+    if nav is not None:
+        ids = nav.get("ids") or []
+        idx = nav.get("idx", 0)
+        col_prev, col_pos, col_next = st.columns([1, 2, 1])
+        with col_prev:
+            if st.button(
+                "← Anterior", key=f"nav_prev_{prop.id}",
+                use_container_width=True, disabled=idx <= 0,
+            ):
+                st.session_state["edit_nav"] = nav_step(nav, -1)
+                st.rerun()
+        with col_pos:
+            if ids:
+                st.markdown(
+                    f'<p style="text-align:center;margin-top:0.4rem;">{idx + 1} de {len(ids)}</p>',
+                    unsafe_allow_html=True,
+                )
+        with col_next:
+            if st.button(
+                "Siguiente →", key=f"nav_next_{prop.id}",
+                use_container_width=True, disabled=idx >= len(ids) - 1,
+            ):
+                st.session_state["edit_nav"] = nav_step(nav, +1)
+                st.rerun()
+        st.divider()
+
+    if prop.excluir_de_estadisticas:
+        if st.button("↩️ Quitar exclusión de estadísticas", key=f"unmark_excl_{prop.id}", use_container_width=True):
+            with Session(engine) as session:
+                _mark_excluida_action(session, prop.id, False)
+            if on_write:
+                on_write()
+            st.rerun()
+    else:
+        if st.button("⚠️ Marcar como excluida (baja/desconocida)", key=f"mark_excl_{prop.id}", use_container_width=True):
+            with Session(engine) as session:
+                _mark_excluida_action(session, prop.id, True)
+            if on_write:
+                on_write()
+            st.rerun()
 
     tab_basic, tab_location, tab_features, tab_extra, tab_history = st.tabs(
         ["📋 Básico", "📍 Ubicación", "✨ Características", "💰 Económico", "📈 Historial"]
@@ -402,10 +474,37 @@ def edit_property_dialog(prop, on_write=None):
             st.success("✅ Guardado")
             if on_write:
                 on_write()
+            if nav is not None:
+                st.session_state["edit_nav"] = nav_step(nav, +1)
             st.rerun()
     with col_cancel:
         if st.button("Cancelar", use_container_width=True):
             st.rerun()
+
+
+def render_edit_dialog_host(page_ids: list[int], on_write=None) -> None:
+    """Page-level host for `edit_property_dialog`'s sequential navigation.
+
+    Reads/writes `st.session_state["edit_nav"]`. Must be called from the
+    page body (NOT from inside an `@st.fragment`, e.g. `render_card_v2`)
+    because a dialog opened inside a fragment can't survive its own
+    `st.rerun()`. Only wired into `app/pages/7_propiedades_v2.py`.
+    """
+    nav = st.session_state.get("edit_nav")
+    if not nav:
+        return
+    ids = nav.get("ids") or []
+    idx = nav.get("idx", 0)
+    if not ids or idx < 0 or idx >= len(ids):
+        st.session_state["edit_nav"] = None
+        return
+    with Session(engine) as session:
+        prop = session.get(Propiedad, ids[idx])
+    if prop is None:
+        # e.g. deleted, or id no longer resolves — close instead of erroring
+        st.session_state["edit_nav"] = None
+        return
+    edit_property_dialog(prop, on_write=on_write, nav=nav)
 
 
 @st.dialog("🧮 Calculadora", width="large")

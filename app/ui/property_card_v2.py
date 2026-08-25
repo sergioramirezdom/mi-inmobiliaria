@@ -88,6 +88,8 @@ def _badges_html(p: dict) -> str:
     if not p.get("activa", True):
         est = html_lib.escape(str(p.get("estado") or "Vendida"))
         badges.append(f'<span class="v2-badge inactive">🚫 {est}</span>')
+    if p.get("excluida"):
+        badges.append('<span class="v2-badge inactive">⚠️ Excluida</span>')
     if not badges:
         return ""
     return f'<div class="v2-badges">{"".join(badges)}</div>'
@@ -201,16 +203,22 @@ def _write(p: dict, on_write, **fields):
 
 
 @st.fragment
-def render_card_v2(p: dict, on_write, index: int = 0):
+def render_card_v2(p: dict, on_write, index: int = 0, page_ids: list | None = None):
     """Renderiza la tarjeta completa: HTML + botones Streamlit.
 
     El HTML da la estructura visual (imagen, body, badges).
     Los botones Streamlit se renderizan debajo del HTML pero visualmente
     integrados via CSS (mismo borde, misma sombra).
+
+    `page_ids`: ids de las propiedades de la página actual, en orden — se
+    usa para abrir el diálogo de edición con navegación secuencial
+    (ver `render_edit_dialog_host`). El propio diálogo no se invoca aquí:
+    un diálogo abierto dentro de un fragment no sobrevive a su propio
+    `st.rerun()`, así que solo fijamos el estado y forzamos un rerun de
+    página completa; el host (fuera del fragment) lo abre.
     """
     from ui.property_dialogs import (
         calculadora_modal,
-        edit_property_dialog,
         fotos_dialog,
         buscar_fotos_dialog,
     )
@@ -257,12 +265,13 @@ def render_card_v2(p: dict, on_write, index: int = 0):
                 prop = session.get(Propiedad, prop_id)
             visita_dialog(prop, on_write=on_write)
 
-    # Editar
+    # Editar (abre el host de navegación fuera del fragment — ver docstring)
     if b2.button("✏️", key=f"v2_edit_{prop_id}",
                  help="Editar", use_container_width=True):
-        with Session(engine) as session:
-            prop = session.get(Propiedad, prop_id)
-        edit_property_dialog(prop, on_write=on_write)
+        ids = page_ids if page_ids is not None else [prop_id]
+        idx = ids.index(prop_id) if prop_id in ids else 0
+        st.session_state["edit_nav"] = {"ids": ids, "idx": idx}
+        st.rerun()
 
     # Calculadora
     if b3.button("🧮", key=f"v2_calc_{prop_id}",

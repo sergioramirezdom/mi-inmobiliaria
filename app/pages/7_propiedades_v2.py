@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from db.database import engine
 from db.models import Propiedad
 from ui.property_card_v2 import render_card_v2
-from ui.property_dialogs import add_url_dialog, get_or_create_fuente_manual
+from ui.property_dialogs import add_url_dialog, get_or_create_fuente_manual, render_edit_dialog_host
 from ui.property_queries import (
     CARACTERISTICAS,
     SORT_OPTIONS,
@@ -223,10 +223,14 @@ try:
 
         # Las alturas quedan iguales por CSS (altura fija de card-body +
         # chips/badges limitados a una fila) — no hace falta JS.
+        page_ids = [p["id"] for p in page_items]
         cols = st.columns(4)
         for i, p in enumerate(page_items):
             with cols[i % 4]:
-                render_card_v2(p, on_write=clear_prop_caches, index=i)
+                render_card_v2(p, on_write=clear_prop_caches, index=i, page_ids=page_ids)
+
+        # ── Diálogo de edición con navegación (fuera de los fragments) ──
+        render_edit_dialog_host(page_ids, on_write=clear_prop_caches)
 
         # ── Paginación ────────────────────────────────────────────────
         st.caption(f"Página {page} de {total_pages} · {total} propiedades")
