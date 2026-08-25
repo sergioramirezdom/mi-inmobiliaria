@@ -1,7 +1,8 @@
 """Database configuration and utilities."""
 
 from sqlmodel import SQLModel, create_engine, Session, select
-from typing import List, Optional
+from typing import List, Optional, Tuple
+from datetime import datetime
 import logging
 import sys
 from pathlib import Path
@@ -209,6 +210,61 @@ class PropiedadCRUD:
             ).distinct()
         ).all()
         return sorted({z.strip() for z in rows if z and z.strip()}, key=str.lower)
+
+
+# CRUD Helpers for PrecioHistorico (add/edit only — no delete, per design)
+class PrecioHistoricoCRUD:
+    """CRUD operations for PrecioHistorico. Add and edit only — no delete."""
+
+    @staticmethod
+    def validar(precio: Optional[float], fecha: Optional[datetime], now: Optional[datetime] = None) -> Tuple[bool, Optional[str]]:
+        """Pure validation for a price-history entry.
+
+        Rejects a missing/non-positive price, a missing date, or a future
+        date (relative to `now`, defaulting to `datetime.utcnow()`).
+        Returns `(es_valido, mensaje_error)`.
+        """
+        if now is None:
+            now = datetime.utcnow()
+        if precio is None or precio <= 0:
+            return False, "El precio debe ser mayor que 0."
+        if fecha is None:
+            return False, "La fecha es obligatoria."
+        if fecha > now:
+            return False, "La fecha no puede ser futura."
+        return True, None
+
+    @staticmethod
+    def add(session: Session, propiedad_id: int, precio: float, fecha: datetime) -> PrecioHistorico:
+        """Add a new price-history row with a user-chosen date."""
+        registro = PrecioHistorico(propiedad_id=propiedad_id, precio=precio, fecha=fecha)
+        session.add(registro)
+        session.commit()
+        session.refresh(registro)
+        return registro
+
+    @staticmethod
+    def update(session: Session, historico_id: int, precio: float, fecha: datetime) -> Optional[PrecioHistorico]:
+        """Edit an existing price-history row's price and/or date."""
+        registro = session.get(PrecioHistorico, historico_id)
+        if not registro:
+            return None
+        registro.precio = precio
+        registro.fecha = fecha
+        session.add(registro)
+        session.commit()
+        session.refresh(registro)
+        return registro
+
+    @staticmethod
+    def get_by_propiedad(session: Session, propiedad_id: int) -> List[PrecioHistorico]:
+        """Get all price-history rows for a property, chronological order."""
+        stmt = (
+            select(PrecioHistorico)
+            .where(PrecioHistorico.propiedad_id == propiedad_id)
+            .order_by(PrecioHistorico.fecha.asc())
+        )
+        return session.exec(stmt).all()
 
 
 # CRUD Helpers for FiltroAlerta

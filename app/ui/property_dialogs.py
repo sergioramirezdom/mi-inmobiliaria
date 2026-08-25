@@ -9,8 +9,9 @@ import html as html_lib
 import streamlit as st
 from sqlmodel import Session, select
 
-from db.database import engine, PropiedadCRUD
+from db.database import engine, PropiedadCRUD, PrecioHistoricoCRUD
 from db.models import Propiedad, PrecioHistorico
+from listing_date import es_candidato_backfill
 from utils.calculadora import (
     calcular_compraventa,
     calcular_gastos_hipoteca,
@@ -155,6 +156,38 @@ def edit_property_dialog(prop, on_write=None):
 
         descripcion = st.text_area("Descripción", value=prop.descripcion or "", height=120)
 
+        st.divider()
+        from datetime import date as _date
+        from db.models import Fuente as _Fuente
+
+        with Session(engine) as _fsession:
+            _fuente = _fsession.get(_Fuente, prop.fuente_id)
+        if (
+            prop.fecha_publicacion is None
+            and _fuente
+            and es_candidato_backfill(prop.fecha_scraping, _fuente.created_at)
+        ):
+            st.info(
+                "📥 Esta propiedad parece proceder de una carga inicial (backfill) de la "
+                "fuente — la fecha de scraping puede no reflejar la fecha real de publicación."
+            )
+
+        corregir_fecha = st.checkbox(
+            "📅 Corregir fecha de publicación manualmente",
+            value=prop.fecha_publicacion is not None,
+        )
+        if corregir_fecha:
+            fecha_inicial = (prop.fecha_publicacion or prop.fecha_scraping).date()
+            fecha_publicacion_date = st.date_input(
+                "Fecha de publicación real", value=fecha_inicial, max_value=_date.today()
+            )
+        else:
+            fecha_publicacion_date = None
+            st.caption(
+                f"Sin corregir — se usa la fecha de scraping "
+                f"({prop.fecha_scraping.strftime('%Y-%m-%d')}) como fecha de publicación efectiva."
+            )
+
     with tab_location:
         from scraper.zona_normalizer import cargar_catalogo
         catalogo = cargar_catalogo()
@@ -218,6 +251,8 @@ def edit_property_dialog(prop, on_write=None):
             precio_ibi = st.number_input("IBI (€/año)", value=float(prop.precio_ibi or 0), step=10.0, min_value=0.0)
 
     with tab_history:
+        from datetime import date, datetime
+
         with Session(engine) as hsession:
             registros = hsession.exec(
                 select(PrecioHistorico)
@@ -248,13 +283,91 @@ def edit_property_dialog(prop, on_write=None):
                 for r in reversed(registros):
                     st.caption(f"{r.fecha.strftime('%Y-%m-%d %H:%M')} — €{r.precio:,.0f}")
 
+        st.divider()
+        st.subheader("➕ Añadir registro de precio")
+        with st.form(key=f"add_historico_{prop.id}"):
+            col_a, col_b = st.columns(2)
+            with col_a:
+                nuevo_precio = st.number_input(
+                    "Precio (€)", min_value=0.0, step=1000.0, key=f"nuevo_precio_{prop.id}"
+                )
+            with col_b:
+                nueva_fecha = st.date_input(
+                    "Fecha", value=date.today(), max_value=date.today(), key=f"nueva_fecha_{prop.id}"
+                )
+            if st.form_submit_button("Añadir"):
+                fecha_dt = datetime(nueva_fecha.year, nueva_fecha.month, nueva_fecha.day)
+                es_valido, error = PrecioHistoricoCRUD.validar(nuevo_precio, fecha_dt)
+                if not es_valido:
+                    st.error(error)
+                else:
+                    with Session(engine) as hsession2:
+                        PrecioHistoricoCRUD.add(
+                            hsession2, propiedad_id=prop.id, precio=nuevo_precio, fecha=fecha_dt
+                        )
+                    st.success("✅ Registro añadido")
+                    if on_write:
+                        on_write()
+                    st.rerun()
+
+        if registros:
+            st.subheader("✏️ Editar registro existente")
+            opciones = {
+                f"{r.fecha.strftime('%Y-%m-%d')} — €{r.precio:,.0f} (#{r.id})": r
+                for r in reversed(registros)
+            }
+            seleccion_label = st.selectbox(
+                "Selecciona un registro", list(opciones.keys()), key=f"editar_sel_{prop.id}"
+            )
+            registro_sel = opciones[seleccion_label]
+            with st.form(key=f"edit_historico_{prop.id}"):
+                col_a, col_b = st.columns(2)
+                with col_a:
+                    precio_editado = st.number_input(
+                        "Precio (€)",
+                        min_value=0.0,
+                        value=float(registro_sel.precio),
+                        step=1000.0,
+                        key=f"precio_edit_{prop.id}",
+                    )
+                with col_b:
+                    fecha_editada = st.date_input(
+                        "Fecha",
+                        value=registro_sel.fecha.date(),
+                        max_value=date.today(),
+                        key=f"fecha_edit_{prop.id}",
+                    )
+                if st.form_submit_button("Guardar edición"):
+                    fecha_dt = datetime(fecha_editada.year, fecha_editada.month, fecha_editada.day)
+                    es_valido, error = PrecioHistoricoCRUD.validar(precio_editado, fecha_dt)
+                    if not es_valido:
+                        st.error(error)
+                    else:
+                        with Session(engine) as hsession3:
+                            PrecioHistoricoCRUD.update(
+                                hsession3,
+                                historico_id=registro_sel.id,
+                                precio=precio_editado,
+                                fecha=fecha_dt,
+                            )
+                        st.success("✅ Registro actualizado")
+                        if on_write:
+                            on_write()
+                        st.rerun()
+
     st.divider()
     col_save, col_cancel = st.columns([1, 1])
     with col_save:
         if st.button("💾 Guardar cambios", type="primary", use_container_width=True):
+            fecha_publicacion_dt = (
+                datetime(fecha_publicacion_date.year, fecha_publicacion_date.month, fecha_publicacion_date.day)
+                if corregir_fecha and fecha_publicacion_date
+                else None
+            )
             with Session(engine) as session:
                 PropiedadCRUD.update(session, prop.id,
                     titulo=titulo or prop.titulo,
+                    fecha_publicacion=fecha_publicacion_dt,
                     precio=precio if precio > 0 else None,
                     precio_anterior=precio_anterior if precio_anterior > 0 else None,
                     superficie_m2=superficie_m2 if superficie_m2 > 0 else None,
