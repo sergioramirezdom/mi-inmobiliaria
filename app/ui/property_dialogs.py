@@ -162,7 +162,11 @@ def edit_property_dialog(prop, on_write=None):
 
         with Session(engine) as _fsession:
             _fuente = _fsession.get(_Fuente, prop.fuente_id)
-        if _fuente and es_candidato_backfill(prop.fecha_scraping, _fuente.created_at):
+        if (
+            prop.fecha_publicacion is None
+            and _fuente
+            and es_candidato_backfill(prop.fecha_scraping, _fuente.created_at)
+        ):
             st.info(
                 "📥 Esta propiedad parece proceder de una carga inicial (backfill) de la "
                 "fuente — la fecha de scraping puede no reflejar la fecha real de publicación."
