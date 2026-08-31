@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from db.models import Propiedad, FiltroAlerta, Fuente
 from .filter_matcher import FilterMatcher
+from .alert_routing import resolve_chat_id
 from config import settings
 
 logger = logging.getLogger(__name__)
@@ -33,17 +34,21 @@ class TelegramNotifier:
                 "Set TELEGRAM_TOKEN and TELEGRAM_CHAT_ID in .env or st.secrets"
             )
 
-    async def send_message(self, text: str) -> bool:
+    async def send_message(self, text: str, chat_id: Optional[str] = None) -> bool:
         """
         Send a message to Telegram.
 
         Args:
             text: Message text (supports Markdown)
+            chat_id: Optional chat id override. Defaults to the global
+                ``settings.TELEGRAM_CHAT_ID`` when not provided.
 
         Returns:
             True if successful, False otherwise
         """
-        if not self.token or not self.chat_id:
+        target_chat_id = chat_id or self.chat_id
+
+        if not self.token or not target_chat_id:
             logger.warning("Cannot send Telegram message: credentials not configured")
             return False
 
@@ -52,7 +57,7 @@ class TelegramNotifier:
                 response = await client.post(
                     f"{self.api_url}/sendMessage",
                     json={
-                        "chat_id": self.chat_id,
+                        "chat_id": target_chat_id,
                         "text": text,
                         "parse_mode": "Markdown",
                     },
@@ -178,7 +183,10 @@ class TelegramNotifier:
 
         text += f"🕐 {datetime.utcnow().strftime('%H:%M UTC')}"
 
-        return await self.send_message(text)
+        chat_id = resolve_chat_id(
+            getattr(filtro, "chat_id_telegram", None), self.chat_id
+        )
+        return await self.send_message(text, chat_id=chat_id)
 
     async def send_filtered_summary(
         self,
