@@ -33,6 +33,18 @@ SORT_OPTIONS = {
 RESULT_LIMIT = 300
 
 
+def no_excluidas_clause():
+    """SQLAlchemy predicate: exclude rows manually flagged out of statistics.
+
+    NULL-safe (`.isnot(True)`, not `== False`) so a legacy row that
+    predates the `excluir_de_estadisticas` migration and still reads NULL
+    is treated as NOT excluded. This is the single gate applied at
+    `app/pages/4_estadisticas.py:fetch_props`/`fetch_hist` — the only two
+    entry points feeding every stats/KPI consumer.
+    """
+    return Propiedad.excluir_de_estadisticas.isnot(True)
+
+
 def tab_conditions(tab: str) -> list:
     """Condiciones SQL de cada pestaña de estado."""
     if tab == "nuevas":
@@ -169,6 +181,7 @@ def prop_to_dict(
         "precio_oferta": prop.precio_oferta,
         "favorita": prop.favorita,
         "descartada": prop.descartada,
+        "excluida": bool(prop.excluir_de_estadisticas),
     }
 
 

@@ -93,6 +93,7 @@ class Propiedad(SQLModel, table=True):
     fecha_publicacion: Optional[datetime] = None
     fecha_scraping: datetime = Field(default_factory=datetime.utcnow, index=True)
     fecha_baja: Optional[datetime] = Field(default=None, index=True)  # when activa became False
+    excluir_de_estadisticas: bool = Field(default=False, index=True)  # manual exclusion flag; NOT a sale
     activa: bool = Field(default=True, index=True)
     vista: bool = Field(default=False, index=True)
     descartada: bool = Field(default=False, index=True)

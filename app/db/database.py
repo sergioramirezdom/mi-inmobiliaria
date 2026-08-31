@@ -194,6 +194,27 @@ class PropiedadCRUD:
         return propiedad
 
     @staticmethod
+    def marcar_excluida(
+        session: Session, propiedad_id: int, excluir: bool, now: Optional[datetime] = None
+    ) -> Optional[Propiedad]:
+        """Manually mark/unmark a property as excluded from statistics.
+
+        excluir=True  -> activa=False, fecha_baja=now, flag=True (never a real sale)
+        excluir=False -> activa=True,  fecha_baja=None, flag=False (restore)
+        """
+        if now is None:
+            now = datetime.utcnow()
+        if excluir:
+            return PropiedadCRUD.update(
+                session, propiedad_id,
+                excluir_de_estadisticas=True, activa=False, fecha_baja=now,
+            )
+        return PropiedadCRUD.update(
+            session, propiedad_id,
+            excluir_de_estadisticas=False, activa=True, fecha_baja=None,
+        )
+
+    @staticmethod
     def get_distinct_barrios(session: Session) -> List[str]:
         """Get all distinct non-empty barrio values, sorted alphabetically (case-insensitive)."""
         rows = session.exec(

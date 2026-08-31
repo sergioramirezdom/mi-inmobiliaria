@@ -195,6 +195,31 @@ class TestCheckDuplicate:
 
         assert result is False
 
+    def test_check_duplicate_still_matches_manually_excluded_property(
+        self, scraper_runner, mock_db_session
+    ):
+        """Re-scraping a manually-excluded (excluir_de_estadisticas=True)
+        property's hash_unico must still hit _check_duplicate and be
+        treated as a duplicate — it must NOT be re-inserted/re-surface as
+        'nueva' just because it's excluded from statistics (spec:
+        property-exclusion dependency on the dedup invariant)."""
+        propiedad = Propiedad(
+            hash_unico="excluded-hash-1",
+            url_original="https://example.com/5",
+            fuente_id=1,
+        )
+
+        excluded_existing = Propiedad(
+            hash_unico="excluded-hash-1",
+            activa=False,
+            excluir_de_estadisticas=True,
+        )
+        mock_db_session.exec.return_value.first.return_value = excluded_existing
+
+        result = scraper_runner._check_duplicate(propiedad)
+
+        assert result is True
+
 
 # ============================================================
 # TESTS FOR _save_propiedad()
