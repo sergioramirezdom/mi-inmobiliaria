@@ -221,12 +221,24 @@ class TelegramNotifier:
 
         return any_sent
 
-    async def send_price_drop_alerts(self, bajadas: list, fuente: Fuente) -> bool:
-        """Send Telegram alerts for price drops."""
+    async def send_price_drop_alerts(
+        self,
+        bajadas: list,
+        fuente: Optional[Fuente] = None,
+        source_label: Optional[str] = None,
+        chat_id: Optional[str] = None,
+    ) -> bool:
+        """Send Telegram alerts for price drops.
+
+        The header source name is ``fuente.nombre`` when a ``fuente`` is given,
+        otherwise the generic ``source_label`` (e.g. ``"favoritas"``). The body
+        is identical regardless of source. ``chat_id`` overrides the target chat.
+        """
         if not bajadas:
             return False
 
-        text = f"📉 *Bajadas de precio — {fuente.nombre}*\n\n"
+        source_name = fuente.nombre if fuente is not None else (source_label or "")
+        text = f"📉 *Bajadas de precio — {source_name}*\n\n"
         for b in bajadas[:10]:
             text += f"🏠 {b['titulo'][:50]}\n"
             text += f"   {b['precio_anterior']:,.0f}€ → *{b['precio_nuevo']:,.0f}€* (-{b['bajada_pct']}%)\n"
@@ -236,7 +248,7 @@ class TelegramNotifier:
             text += f"_...y {len(bajadas) - 10} más_\n"
 
         text += f"🕐 {datetime.utcnow().strftime('%H:%M UTC')}"
-        return await self.send_message(text)
+        return await self.send_message(text, chat_id=chat_id)
 
     async def send_no_matches_summary(
         self,

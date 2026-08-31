@@ -18,6 +18,7 @@ from .description_enricher import extract_barrio_from_text
 from .config import ScraperConfig
 from .zona_normalizer import CatalogoInvalidoError
 from .check_outcome import CheckOutcome, classify_check_outcome, apply_check_outcome
+from .price_drop import build_price_drop_entry
 from db.models import Fuente, Propiedad, PrecioHistorico
 
 
@@ -241,13 +242,11 @@ class PaginatedScraper:
                                                 if nuevo_precio < precio_anterior:
                                                     bajada = round(100 * (precio_anterior - nuevo_precio) / precio_anterior, 1)
                                                     self.logger.info(f"📉 Bajada {bajada}%: {existing.titulo[:50]} {precio_anterior:.0f}€ → {nuevo_precio:.0f}€")
-                                                    stats.setdefault("bajadas_precio", []).append({
-                                                        "titulo": existing.titulo,
-                                                        "url": existing.url_original,
-                                                        "precio_anterior": precio_anterior,
-                                                        "precio_nuevo": nuevo_precio,
-                                                        "bajada_pct": bajada,
-                                                    })
+                                                    stats.setdefault("bajadas_precio", []).append(
+                                                        build_price_drop_entry(
+                                                            existing, precio_anterior, nuevo_precio, bajada
+                                                        )
+                                                    )
                                                 else:
                                                     self.logger.info(f"📈 Subida precio: {existing.titulo[:50]} {precio_anterior:.0f}€ → {nuevo_precio:.0f}€")
                                     except Exception:

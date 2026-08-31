@@ -14,7 +14,14 @@ logger = logging.getLogger(__name__)
 from db.database import engine, PropiedadCRUD
 from db.models import FiltroAlerta, Propiedad
 from notifications.filter_matcher import FilterMatcher
+from notifications.alert_routing import TIPO_NUEVAS, TIPO_BAJADAS_FAVORITAS
 from scraper.zona_normalizer import cargar_catalogo
+
+TIPO_ALERTA_OPTS = [TIPO_NUEVAS, TIPO_BAJADAS_FAVORITAS]
+TIPO_ALERTA_LABELS = {
+    TIPO_NUEVAS: "🆕 Nuevas propiedades (con criterios)",
+    TIPO_BAJADAS_FAVORITAS: "📉 Bajadas de precio de favoritas (sin criterios)",
+}
 
 st.set_page_config(page_title="Gestión de Alertas", page_icon="🔔", layout="wide")
 
@@ -51,6 +58,19 @@ def build_criteria(precio_min, precio_max, m2_min, m2_max, habitaciones, banos,
         estado=estado if estado else None,
         amenidades=",".join(amenidades) if amenidades else None,
     )
+
+
+def resolve_criterios_json(tipo_alerta: str, criterios: dict):
+    """Serialise criteria for persistence given the alert type.
+
+    A ``bajadas_favoritas`` alert has no criteria — it is a pure switch — so its
+    ``criterios_json`` is stored as ``None``. Switching an existing ``nuevas``
+    alert to ``bajadas_favoritas`` therefore clears its criteria destructively;
+    switching back does not restore them (the form starts empty).
+    """
+    if tipo_alerta == TIPO_BAJADAS_FAVORITAS:
+        return None
+    return json.dumps(criterios)
 
 
 def criteria_form(prefix: str, defaults: dict = None):
@@ -139,18 +159,38 @@ def edit_alert_dialog(filtro: FiltroAlerta):
     chat_id = st.text_input("Chat ID Telegram (opcional)", value=filtro.chat_id_telegram or "",
                             help="Deja vacío para usar el chat ID por defecto del .env")
 
-    st.markdown("### Criterios")
-    vals = criteria_form("edit", criterios)
+    tipo_actual = getattr(filtro, "tipo_alerta", TIPO_NUEVAS) or TIPO_NUEVAS
+    tipo_alerta = st.selectbox(
+        "Tipo de alerta",
+        TIPO_ALERTA_OPTS,
+        index=TIPO_ALERTA_OPTS.index(tipo_actual) if tipo_actual in TIPO_ALERTA_OPTS else 0,
+        format_func=lambda t: TIPO_ALERTA_LABELS.get(t, t),
+        key="edit_tipo_alerta",
+    )
+
+    es_favoritas = tipo_alerta == TIPO_BAJADAS_FAVORITAS
+    if es_favoritas:
+        st.info("Esta alerta notifica bajadas de precio de propiedades marcadas como favoritas. No usa criterios.")
+        if criterios:
+            st.warning("Al guardar como *bajadas de favoritas* se borrarán los criterios actuales.")
+        vals = None
+    else:
+        st.markdown("### Criterios")
+        vals = criteria_form("edit", criterios)
+
+    if es_favoritas and not (chat_id or "").strip():
+        st.caption("Sin Chat ID: los avisos irán al chat global (duplican el aviso de bajadas global).")
 
     st.divider()
     col1, col2 = st.columns(2)
     with col1:
         if st.button("💾 Guardar", type="primary", use_container_width=True):
-            nuevos_criterios = build_criteria(**vals)
+            nuevos_criterios = build_criteria(**vals) if vals is not None else {}
             with Session(engine) as session:
                 f = session.get(FiltroAlerta, filtro.id)
                 f.nombre = nombre or filtro.nombre
-                f.criterios_json = json.dumps(nuevos_criterios)
+                f.tipo_alerta = tipo_alerta
+                f.criterios_json = resolve_criterios_json(tipo_alerta, nuevos_criterios)
                 f.chat_id_telegram = chat_id.strip() or None
                 session.add(f)
                 session.commit()
@@ -214,23 +254,40 @@ col_form, col_list = st.columns([1, 2])
 with col_form:
     st.subheader("➕ Nueva alerta")
 
+    # Rendered OUTSIDE st.form so the criteria block can react to the selection
+    # immediately (forms do not rerun on widget change until submit).
+    tipo_alerta_create = st.selectbox(
+        "Tipo de alerta",
+        TIPO_ALERTA_OPTS,
+        format_func=lambda t: TIPO_ALERTA_LABELS.get(t, t),
+        key="create_tipo_alerta",
+    )
+    crear_favoritas = tipo_alerta_create == TIPO_BAJADAS_FAVORITAS
+    if crear_favoritas:
+        st.info("Notifica bajadas de precio de propiedades favoritas. No usa criterios.")
+
     with st.form("create_alert_form", clear_on_submit=True):
         nombre = st.text_input("Nombre *", placeholder="ej: Piso barato en Centro")
         chat_id = st.text_input("Chat ID Telegram (opcional)",
                                 help="Deja vacío para usar el del .env")
 
-        st.markdown("### Criterios")
-        vals = criteria_form("create")
+        if crear_favoritas:
+            vals = None
+            st.caption("Sin criterios: se avisa de cualquier favorita que baje de precio.")
+        else:
+            st.markdown("### Criterios")
+            vals = criteria_form("create")
 
         if st.form_submit_button("✅ Crear alerta", use_container_width=True):
             if not nombre.strip():
                 st.error("El nombre es obligatorio")
             else:
-                criterios = build_criteria(**vals)
+                criterios = build_criteria(**vals) if vals is not None else {}
                 with Session(engine) as session:
                     session.add(FiltroAlerta(
                         nombre=nombre.strip(),
-                        criterios_json=json.dumps(criterios),
+                        tipo_alerta=tipo_alerta_create,
+                        criterios_json=resolve_criterios_json(tipo_alerta_create, criterios),
                         chat_id_telegram=chat_id.strip() or None,
                         activo=True,
                     ))
@@ -261,21 +318,33 @@ with col_list:
             st.divider()
 
             for filtro in filtros:
-                matches_count = len(FilterMatcher.get_matching_properties(todas_props, filtro))
+                _tipo = getattr(filtro, "tipo_alerta", TIPO_NUEVAS) or TIPO_NUEVAS
+                if _tipo == TIPO_BAJADAS_FAVORITAS:
+                    matches_count = None
+                else:
+                    matches_count = len(FilterMatcher.get_matching_properties(todas_props, filtro))
 
                 with st.container(border=True):
                     col_name, col_badge, col_actions = st.columns([3, 1, 2])
 
                     with col_name:
                         icon = "🟢" if filtro.activo else "🔴"
-                        st.markdown(f"### {icon} {filtro.nombre}")
+                        tipo = getattr(filtro, "tipo_alerta", TIPO_NUEVAS) or TIPO_NUEVAS
+                        es_favoritas = tipo == TIPO_BAJADAS_FAVORITAS
+                        badge = " `📉 favoritas`" if es_favoritas else ""
+                        st.markdown(f"### {icon} {filtro.nombre}{badge}")
                         criterios = FilterMatcher.parse_criteria(filtro.criterios_json)
-                        st.caption(FilterMatcher.format_criteria(criterios))
+                        if es_favoritas:
+                            st.caption("Bajadas de precio de favoritas (sin criterios)")
+                        else:
+                            st.caption(FilterMatcher.format_criteria(criterios))
                         if filtro.chat_id_telegram:
                             st.caption(f"📱 Chat: `{filtro.chat_id_telegram}`")
+                        elif es_favoritas:
+                            st.caption("📱 Chat global (duplica el aviso de bajadas global)")
 
                     with col_badge:
-                        st.metric("Coinciden", matches_count)
+                        st.metric("Coinciden", "—" if matches_count is None else matches_count)
 
                     with col_actions:
                         c1, c2 = st.columns(2)

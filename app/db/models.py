@@ -142,6 +142,10 @@ class FiltroAlerta(SQLModel, table=True):
     distrito: Optional[str] = None
 
     activo: bool = Field(default=True, index=True)
+    # Alert type: "nuevas" (criteria-matched new listings) or "bajadas_favoritas"
+    # (price drops of favourited properties, no criteria). Free string, default
+    # "nuevas"; pre-existing rows read back as "nuevas".
+    tipo_alerta: str = Field(default="nuevas", index=True)
     chat_id_telegram: Optional[str] = None  # Optional: uses env variable if not set
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)

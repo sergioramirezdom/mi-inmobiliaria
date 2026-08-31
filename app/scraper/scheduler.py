@@ -18,6 +18,11 @@ from .runner import ScraperRunner
 from .sold_checker import check_sold_properties
 from notifications.telegram import TelegramNotifier
 from notifications.filter_matcher import FilterMatcher
+from notifications.alert_routing import (
+    resolve_chat_id,
+    filter_favorite_drops,
+    TIPO_BAJADAS_FAVORITAS,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -90,6 +95,16 @@ class ScraperScheduler:
             if vendidas:
                 notifier = TelegramNotifier()
                 await notifier.send_sold_properties_alert(vendidas)
+
+            # The sold check also detects price drops (previously discarded).
+            # Fan out the favourite subset to bajadas_favoritas alerts with a
+            # generic source label (no fuente scope on this path).
+            bajadas = stats.get("bajadas_precio", [])
+            if bajadas:
+                with Session(engine) as session:
+                    await self._send_favorite_drop_alerts(
+                        bajadas, session, source_label="favoritas"
+                    )
         except Exception as e:
             self.logger.error(f"❌ Error en sold check: {e}", exc_info=True)
 
@@ -175,9 +190,52 @@ class ScraperScheduler:
                     self.logger.info(f"📉 {fuente_nombre}: {len(bajadas)} bajadas de precio detectadas")
                     notifier = TelegramNotifier()
                     await notifier.send_price_drop_alerts(bajadas, fuente)
+                    # Additionally fan out favourite drops to bajadas_favoritas
+                    # alerts (intentional duplication with the global send above).
+                    await self._send_favorite_drop_alerts(bajadas, session, fuente=fuente)
 
         except Exception as e:
             self.logger.error(f"❌ Error scraping {fuente_nombre}: {e}", exc_info=True)
+
+    async def _send_favorite_drop_alerts(
+        self,
+        bajadas: list,
+        session: Session,
+        fuente: Optional[Fuente] = None,
+        source_label: Optional[str] = None,
+    ) -> None:
+        """Dispatch the favourite-only subset of ``bajadas`` to every active
+        ``bajadas_favoritas`` alert, routed to each alert's own chat (or the
+        global chat when it has none). No-op when there are no favourite drops
+        or no such alert. Header source: ``fuente`` name for the scrape path,
+        ``source_label`` (e.g. ``"favoritas"``) for the sold-check path.
+        """
+        try:
+            fav_drops = filter_favorite_drops(bajadas)
+            if not fav_drops:
+                return
+
+            stmt = select(FiltroAlerta).where(
+                FiltroAlerta.activo == True,  # noqa: E712
+                FiltroAlerta.tipo_alerta == TIPO_BAJADAS_FAVORITAS,
+            )
+            alertas = session.exec(stmt).all()
+            if not alertas:
+                return
+
+            notifier = TelegramNotifier()
+            for filtro in alertas:
+                chat_id = resolve_chat_id(
+                    getattr(filtro, "chat_id_telegram", None), notifier.chat_id
+                )
+                await notifier.send_price_drop_alerts(
+                    fav_drops,
+                    fuente=fuente,
+                    source_label=source_label,
+                    chat_id=chat_id,
+                )
+        except Exception as e:
+            self.logger.error(f"Error sending favorite-drop alerts: {e}", exc_info=True)
 
     async def _send_notifications(
         self, fuente: Fuente, stats: dict, session: Session

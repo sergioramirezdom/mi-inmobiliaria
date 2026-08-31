@@ -51,7 +51,7 @@ class FakeDetailScraper:
         return await self._fetch(url)
 
 
-def _existing(intentos_fallidos=0, activa=True, precio=100000, prop_id=1):
+def _existing(intentos_fallidos=0, activa=True, precio=100000, prop_id=1, favorita=False):
     existing = MagicMock()
     existing.id = prop_id
     existing.activa = activa
@@ -64,6 +64,7 @@ def _existing(intentos_fallidos=0, activa=True, precio=100000, prop_id=1):
     existing.intentos_fallidos = intentos_fallidos
     existing.titulo = "Piso en venta"
     existing.url_original = "http://example.com/prop/1"
+    existing.favorita = favorita
     return existing
 
 
@@ -156,3 +157,31 @@ async def test_price_change_logic_fires_only_on_alive(monkeypatch):
     assert existing.precio == 90000
     assert existing.precio_anterior == 100000
     assert len(stats.get("bajadas_precio", [])) == 1
+
+
+async def test_price_drop_entry_carries_propiedad_id_and_favorita(monkeypatch):
+    existing = _existing(intentos_fallidos=0, precio=100000, prop_id=77, favorita=True)
+
+    async def fetch(url):
+        return {"titulo": "Piso en venta", "precio": 90000}
+
+    stats, session = await _run(monkeypatch, existing, fetch)
+
+    drop = stats["bajadas_precio"][0]
+    assert drop["propiedad_id"] == 77
+    assert drop["favorita"] is True
+    assert drop["precio_anterior"] == 100000
+    assert drop["precio_nuevo"] == 90000
+
+
+async def test_price_drop_entry_favorita_false_for_non_favorite(monkeypatch):
+    existing = _existing(intentos_fallidos=0, precio=100000, prop_id=5, favorita=False)
+
+    async def fetch(url):
+        return {"titulo": "Piso en venta", "precio": 90000}
+
+    stats, session = await _run(monkeypatch, existing, fetch)
+
+    drop = stats["bajadas_precio"][0]
+    assert drop["propiedad_id"] == 5
+    assert drop["favorita"] is False
