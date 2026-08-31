@@ -13,6 +13,7 @@ from db.database import RegistroEjecucionCRUD
 from .config import ScraperConfig
 from .detail_factory import get_detail_scraper
 from .check_outcome import CheckOutcome, classify_check_outcome, apply_check_outcome
+from .price_drop import build_price_drop_entry
 
 logger = logging.getLogger(__name__)
 
@@ -126,13 +127,11 @@ async def check_sold_properties(session: Session, limit: Optional[int] = None) -
                         if nuevo_precio < precio_anterior:
                             bajada = round(100 * (precio_anterior - nuevo_precio) / precio_anterior, 1)
                             logger.info(f"[{i}/{stats['total']}] 📉 Bajada {bajada}%: {prop.titulo[:50]} {precio_anterior:.0f}€ → {nuevo_precio:.0f}€")
-                            stats.setdefault("bajadas_precio", []).append({
-                                "titulo": prop.titulo,
-                                "url": prop.url_original,
-                                "precio_anterior": precio_anterior,
-                                "precio_nuevo": nuevo_precio,
-                                "bajada_pct": bajada,
-                            })
+                            stats.setdefault("bajadas_precio", []).append(
+                                build_price_drop_entry(
+                                    prop, precio_anterior, nuevo_precio, bajada
+                                )
+                            )
                         else:
                             logger.info(f"[{i}/{stats['total']}] 📈 Subida precio: {prop.titulo[:50]} {precio_anterior:.0f}€ → {nuevo_precio:.0f}€")
 
