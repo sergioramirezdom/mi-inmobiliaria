@@ -52,6 +52,16 @@ NOTAS_CONFIG = {
     "selectors": {"link_href_contains": "/Venta-"},
 }
 
+# Argumentos con los que se crea la fila Fuente. A nivel de módulo para que
+# los tests de wiring los verifiquen sin necesidad de DATABASE_URL.
+FUENTE_KWARGS = {
+    "nombre": "Tular",
+    "url": TULAR_URL,
+    "tipo_scraper": "generic",
+    "activa": False,
+    "intervalo_horas": 24,
+}
+
 
 def main() -> None:
     with Session(engine) as session:
@@ -64,11 +74,7 @@ def main() -> None:
             return
 
         fuente = Fuente(
-            nombre="Tular",
-            url=TULAR_URL,
-            tipo_scraper="generic",
-            activa=False,
-            intervalo_horas=24,
+            **FUENTE_KWARGS,
             notas=json.dumps(NOTAS_CONFIG, ensure_ascii=False),
         )
 

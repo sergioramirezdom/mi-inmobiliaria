@@ -152,3 +152,10 @@ def test_seed_script_fuente_kwargs():
     assert mod.TULAR_URL.startswith("https://www.tular.es/buscar.php?")
     assert "check_tipo_inmueble%5B%5D=Vivienda" in mod.TULAR_URL
     assert "po%5B%5D=po_El+Puerto+de+Santa+Mar%C3%ADa" in mod.TULAR_URL
+    assert mod.FUENTE_KWARGS == {
+        "nombre": "Tular",
+        "url": mod.TULAR_URL,
+        "tipo_scraper": "generic",
+        "activa": False,
+        "intervalo_horas": 24,
+    }
