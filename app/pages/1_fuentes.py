@@ -26,6 +26,7 @@ DETAIL_SCRAPER_OPTIONS = [
     ("Puerto Piso", "puertopiso"),
     ("Alonsaga", "alonsaga"),
     ("Samper", "samper"),
+    ("Tular", "tular"),
 ]
 
 DETAIL_SCRAPER_LABELS = {v: label for label, v in DETAIL_SCRAPER_OPTIONS}
@@ -111,6 +112,22 @@ SCRAPER_CONFIG_TEMPLATES = {
         # title), GenericScraper cae en "Sin título" en el listado y el
         # filtro descartaría el 100% de los resultados. La URL ya filtra
         # por El Puerto de Santa María en servidor.
+        "max_pages": 1,
+        "pagination_param": "pag",
+        "pagination_start": 1,
+        "pagination_skip_first": True,
+        "use_results_per_page": False,
+        "selectors": {"link_href_contains": "/Venta-"},
+    },
+    "tular": {
+        "detail_scraper_type": "tular",
+        # Sin municipio_filter (ref bug #43): solo hay link_href_contains (sin
+        # selector de title), GenericScraper cae en "Sin título" en el listado
+        # y el filtro descartaría el 100% de los resultados. La URL ya filtra
+        # por El Puerto de Santa María + Vivienda en servidor, y TularScraper
+        # fija municipio="El Puerto de Santa María".
+        # max_pages=1: el buscador Venta+Vivienda+El Puerto devuelve una sola
+        # página (contenedor #listado2_paginacion vacío en el T0).
         "max_pages": 1,
         "pagination_param": "pag",
         "pagination_start": 1,
