@@ -16,6 +16,7 @@ from scraper.alonsaga_scraper import AlonsagaScraper
 from scraper.uriahomes_scraper import UriaHomesScraper
 from scraper.neopolis_scraper import NeopolisScraper
 from scraper.samper_scraper import SamperScraper
+from scraper.tular_scraper import TularScraper
 from scraper.puerto_inmobiliaria import PuertoInmobiliariaScraper
 
 
@@ -32,6 +33,7 @@ EXPECTED_KEYS_TO_CLASSES = {
     "uriahomes": UriaHomesScraper,
     "neopolis": NeopolisScraper,
     "samper": SamperScraper,
+    "tular": TularScraper,
 }
 
 
@@ -57,6 +59,11 @@ def test_get_detail_scraper_returns_jimenezruiz_scraper():
 def test_get_detail_scraper_returns_samper_scraper():
     scraper = get_detail_scraper("samper", ScraperConfig())
     assert isinstance(scraper, SamperScraper)
+
+
+def test_get_detail_scraper_returns_tular_scraper():
+    scraper = get_detail_scraper("tular", ScraperConfig())
+    assert isinstance(scraper, TularScraper)
 
 
 def test_get_detail_scraper_none_returns_default():

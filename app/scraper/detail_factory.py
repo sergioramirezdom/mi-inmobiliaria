@@ -23,6 +23,7 @@ from .alonsaga_scraper import AlonsagaScraper
 from .uriahomes_scraper import UriaHomesScraper
 from .neopolis_scraper import NeopolisScraper
 from .samper_scraper import SamperScraper
+from .tular_scraper import TularScraper
 
 # Parity source of truth: this must match paginated_scraper.py's if/elif
 # chain exactly. tests/test_detail_factory.py enforces this.
@@ -37,6 +38,7 @@ DETAIL_SCRAPERS: Dict[str, Type[ScraperBase]] = {
     "uriahomes": UriaHomesScraper,
     "neopolis": NeopolisScraper,
     "samper": SamperScraper,
+    "tular": TularScraper,
 }
 
 DEFAULT_DETAIL_SCRAPER: Type[ScraperBase] = PuertoInmobiliariaScraper
