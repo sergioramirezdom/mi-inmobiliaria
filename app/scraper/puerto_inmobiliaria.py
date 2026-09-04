@@ -84,26 +84,36 @@ class PuertoInmobiliariaScraper:
                 "http://www.puertoinmobiliaria.es",
                 "https://puertoinmobiliaria.es",
             ]
+            # This is an inference, not an explicit site signal (unlike the
+            # "gestionada" badge below) — the site is known to return this
+            # redirect spuriously under rate-limiting/anti-bot conditions
+            # (2026-08-26 incident: 12 unrelated listings redirected to home
+            # in one run, all still live). Return an EMPTY-shaped dict (no
+            # "activa" key, no titulo/precio) so classify_check_outcome()
+            # routes it through the strike counter instead of deactivating
+            # immediately — same protection sold_checker already gives a
+            # scraper that returns no data at all.
             if parsed_final in homepage_variants:
                 self.logger.info(
                     f"⚠️ Redirect a homepage detectado para {property_url} "
-                    f"— ficha eliminada, marcando como inactiva"
+                    f"— posible ficha eliminada, requiere confirmación"
                 )
-                return {"activa": False, "estado": "No disponible", "url_original": property_url}
+                return {"url_original": property_url}
 
             soup = BeautifulSoup(content, "html.parser")
 
             # --- Detectar página sin elementos de ficha ---
-            # Si no hay ningún selector de ficha, es una página genérica
+            # Si no hay ningún selector de ficha, es una página genérica.
+            # Misma cautela que el caso anterior: señal inferida, no explícita.
             tiene_ficha = any(
                 soup.find(tag, class_=cls) for tag, cls in self._FICHA_SELECTORS
             )
             if not tiene_ficha:
                 self.logger.info(
                     f"⚠️ Página sin elementos de ficha para {property_url} "
-                    f"— posible ficha eliminada, marcando como inactiva"
+                    f"— posible ficha eliminada, requiere confirmación"
                 )
-                return {"activa": False, "estado": "No disponible", "url_original": property_url}
+                return {"url_original": property_url}
 
             enriched_data = {}
 
