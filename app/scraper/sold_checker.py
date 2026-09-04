@@ -113,27 +113,32 @@ async def check_sold_properties(session: Session, limit: Optional[int] = None) -
                 logger.debug(f"[{i}/{stats['total']}] ✅ Activa: {prop.titulo[:60]}")
                 stats["activas"] += 1
                 fstats["activas"] += 1
-                # Price change detection for manual properties
-                if config.detail_scraper_type == "manual_auto":
-                    nuevo_precio = details.get("precio")
-                    if nuevo_precio and prop.precio and abs(nuevo_precio - prop.precio) > 100:
-                        precio_anterior = prop.precio
-                        prop.precio_anterior = precio_anterior
-                        prop.precio = nuevo_precio
-                        prop.updated_at = datetime.utcnow()
-                        session.add(prop)
-                        session.add(PrecioHistorico(propiedad_id=prop.id, precio=nuevo_precio))
-                        session.commit()
-                        if nuevo_precio < precio_anterior:
-                            bajada = round(100 * (precio_anterior - nuevo_precio) / precio_anterior, 1)
-                            logger.info(f"[{i}/{stats['total']}] 📉 Bajada {bajada}%: {prop.titulo[:50]} {precio_anterior:.0f}€ → {nuevo_precio:.0f}€")
-                            stats.setdefault("bajadas_precio", []).append(
-                                build_price_drop_entry(
-                                    prop, precio_anterior, nuevo_precio, bajada
-                                )
+                # Price-change detection for EVERY source. The detail page is
+                # already fetched above for the sold/alive check, so reading
+                # its price here keeps PrecioHistorico complete for scraped
+                # sources too (issue #1) — not just detail_scraper_type ==
+                # "manual_auto". The paginated scraper only records a change
+                # for duplicates older than 3 days, so this daily pass is the
+                # backstop that makes the cumulative-drop math correct.
+                nuevo_precio = details.get("precio")
+                if nuevo_precio and prop.precio and abs(nuevo_precio - prop.precio) > 100:
+                    precio_anterior = prop.precio
+                    prop.precio_anterior = precio_anterior
+                    prop.precio = nuevo_precio
+                    prop.updated_at = datetime.utcnow()
+                    session.add(prop)
+                    session.add(PrecioHistorico(propiedad_id=prop.id, precio=nuevo_precio))
+                    session.commit()
+                    if nuevo_precio < precio_anterior:
+                        bajada = round(100 * (precio_anterior - nuevo_precio) / precio_anterior, 1)
+                        logger.info(f"[{i}/{stats['total']}] 📉 Bajada {bajada}%: {prop.titulo[:50]} {precio_anterior:.0f}€ → {nuevo_precio:.0f}€")
+                        stats.setdefault("bajadas_precio", []).append(
+                            build_price_drop_entry(
+                                prop, precio_anterior, nuevo_precio, bajada
                             )
-                        else:
-                            logger.info(f"[{i}/{stats['total']}] 📈 Subida precio: {prop.titulo[:50]} {precio_anterior:.0f}€ → {nuevo_precio:.0f}€")
+                        )
+                    else:
+                        logger.info(f"[{i}/{stats['total']}] 📈 Subida precio: {prop.titulo[:50]} {precio_anterior:.0f}€ → {nuevo_precio:.0f}€")
 
         except Exception as e:
             err_str = str(e)
