@@ -7,6 +7,7 @@ Triggers". A manual scrape writes exactly one ``tipo="scrape"``
 counter fields; a manual sold-check delegates to the scoped
 ``check_sold_properties`` and writes no extra row itself.
 """
+import logging
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -99,6 +100,31 @@ async def test_run_manual_scrape_writes_single_scrape_registro_with_manual_run_i
     assert result["nuevas"] == 7
     assert stub.calls == [fuente]
 
+    # S6: the return dict now carries the captured run log lines as a list
+    assert isinstance(result["log_lines"], list)
+
+
+@pytest.mark.asyncio
+async def test_run_manual_scrape_result_includes_captured_log_lines():
+    session = FakeSession()
+    fuente = _fuente(13)
+
+    class LoggingStubRunner(StubRunner):
+        async def run_paginated_scraper(self, fuente, *args, **kwargs):
+            logging.getLogger("scraper.runner").info("scraping page 1 of manual run")
+            return await super().run_paginated_scraper(fuente, *args, **kwargs)
+
+    stub = LoggingStubRunner(
+        stats={"nuevas": 1, "duplicadas": 0, "errores": 0, "tiempo_segundos": 1.0}
+    )
+
+    result = await run_manual_scrape(session, fuente, runner=stub)
+
+    assert isinstance(result["log_lines"], list)
+    assert any(
+        "scraping page 1 of manual run" in line for line in result["log_lines"]
+    )
+
 
 @pytest.mark.asyncio
 async def test_run_manual_scrape_honours_explicit_run_id_and_now():
@@ -162,7 +188,11 @@ async def test_run_manual_sold_check_delegates_scoped_and_writes_no_extra_row(mo
     # manual_run must NOT write its own RegistroEjecucion — check_sold_properties
     # already writes exactly one scoped sold_check row.
     assert [r for r in session.added if isinstance(r, RegistroEjecucion)] == []
-    assert stats == {"vendidas": 2, "activas": 8, "sin_datos": 1}
+    # delegated stats are echoed through, plus the S6 captured log lines
+    assert stats["vendidas"] == 2
+    assert stats["activas"] == 8
+    assert stats["sin_datos"] == 1
+    assert isinstance(stats["log_lines"], list)
 
 
 def test_manual_run_module_has_no_streamlit_import():

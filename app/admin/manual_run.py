@@ -22,6 +22,7 @@ from datetime import datetime
 from typing import Any, Optional
 from uuid import uuid4
 
+from admin.log_capture import capture_logs
 from db.database import RegistroEjecucionCRUD
 from db.models import Fuente, RegistroEjecucion
 from scraper.runner import ScraperRunner
@@ -46,62 +47,65 @@ async def run_manual_scrape(
     """Run a full paginated scrape for one fuente and record it.
 
     Returns the scraper stats dict augmented with the ``run_id`` used for the
-    written ``RegistroEjecucion`` row. A mid-run failure is still recorded: the
-    row is written with ``errores > 0`` and the error message is surfaced in the
-    returned stats.
+    written ``RegistroEjecucion`` row and ``log_lines`` — the log output emitted
+    during this run, captured in-process (design D1 option b). A mid-run failure
+    is still recorded: the row is written with ``errores > 0`` and the error
+    message is surfaced in the returned stats.
     """
     run_id = run_id or _new_manual_run_id()
     runner = runner or ScraperRunner(session)
 
-    try:
-        stats: dict = dict(await runner.run_paginated_scraper(
-            fuente, results_per_page=results_per_page
-        ))
-    except Exception as exc:  # noqa: BLE001 — surface, don't swallow
-        stats = {
-            "fuente_id": fuente.id,
-            "nombre": getattr(fuente, "nombre", None),
-            "nuevas": 0,
-            "duplicadas": 0,
-            "errores": 1,
-            "paginas_procesadas": 0,
-            "tiempo_segundos": 0.0,
-            "error": str(exc),
-        }
+    with capture_logs() as logs:
+        try:
+            stats: dict = dict(await runner.run_paginated_scraper(
+                fuente, results_per_page=results_per_page
+            ))
+        except Exception as exc:  # noqa: BLE001 — surface, don't swallow
+            stats = {
+                "fuente_id": fuente.id,
+                "nombre": getattr(fuente, "nombre", None),
+                "nuevas": 0,
+                "duplicadas": 0,
+                "errores": 1,
+                "paginas_procesadas": 0,
+                "tiempo_segundos": 0.0,
+                "error": str(exc),
+            }
 
-    nuevas = int(stats.get("nuevas") or 0)
-    duplicadas = int(stats.get("duplicadas") or 0)
-    errores = int(stats.get("errores") or 0)
-    if stats.get("error") and errores == 0:
-        # run_paginated_scraper reports a whole-run failure with errores=0;
-        # the manual run-log row must still show the failure.
-        errores = 1
-        stats["errores"] = 1
+        nuevas = int(stats.get("nuevas") or 0)
+        duplicadas = int(stats.get("duplicadas") or 0)
+        errores = int(stats.get("errores") or 0)
+        if stats.get("error") and errores == 0:
+            # run_paginated_scraper reports a whole-run failure with errores=0;
+            # the manual run-log row must still show the failure.
+            errores = 1
+            stats["errores"] = 1
 
-    duracion = stats.get("tiempo_segundos")
-    if duracion is None:
-        duracion = stats.get("duracion_segundos")
+        duracion = stats.get("tiempo_segundos")
+        if duracion is None:
+            duracion = stats.get("duracion_segundos")
 
-    registro = RegistroEjecucion(
-        fuente_id=fuente.id,
-        tipo="scrape",
-        total=nuevas + duplicadas + errores,
-        nuevas=nuevas,
-        duplicadas=duplicadas,
-        errores=errores,
-        duracion_segundos=duracion,
-        run_id=run_id,
-    )
-    if now is not None:
-        registro.fecha = now
+        registro = RegistroEjecucion(
+            fuente_id=fuente.id,
+            tipo="scrape",
+            total=nuevas + duplicadas + errores,
+            nuevas=nuevas,
+            duplicadas=duplicadas,
+            errores=errores,
+            duracion_segundos=duracion,
+            run_id=run_id,
+        )
+        if now is not None:
+            registro.fecha = now
 
-    try:
-        RegistroEjecucionCRUD.create(session, registro)
-    except Exception:  # noqa: BLE001 — a log-write failure must not mask stats
-        pass
+        try:
+            RegistroEjecucionCRUD.create(session, registro)
+        except Exception:  # noqa: BLE001 — a log-write failure must not mask stats
+            pass
 
     result = dict(stats)
     result["run_id"] = run_id
+    result["log_lines"] = logs.lines()
     return result
 
 
@@ -118,5 +122,15 @@ async def run_manual_sold_check(
     its own single ``tipo="sold_check"`` ``RegistroEjecucion`` row (S4), so this
     helper never writes one. ``run_id`` is accepted for call-site symmetry but
     is not applied — the scoped sold-check row carries that function's own uuid.
+
+    Returns the delegated stats dict augmented with ``log_lines`` — the log
+    output emitted during this run, captured in-process (design D1 option b).
     """
-    return await check_sold_properties(session, limit=limit, fuente_id=fuente.id)
+    with capture_logs() as logs:
+        stats = await check_sold_properties(
+            session, limit=limit, fuente_id=fuente.id
+        )
+
+    result = dict(stats)
+    result["log_lines"] = logs.lines()
+    return result
