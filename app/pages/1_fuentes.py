@@ -14,6 +14,22 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 logger = logging.getLogger(__name__)
 
+
+def _render_run_logs(log_lines) -> None:
+    """Show the in-process log output captured for a manual run (slice S6).
+
+    Scheduled (CI) runs have no in-app logs — see the Ejecuciones page for the
+    GitHub Actions link-out.
+    """
+    with st.expander("📄 Log de la ejecución", expanded=False):
+        if log_lines:
+            st.code("\n".join(log_lines))
+        else:
+            st.caption(
+                "Sin líneas de log capturadas para esta ejecución."
+            )
+
+
 # ── Scraper detail-type templates ────────────────────────────────────────────
 
 DETAIL_SCRAPER_OPTIONS = [
@@ -751,6 +767,7 @@ with col2:
                                                 f"Error mostrando propiedades: {e}"
                                             )
 
+                                    _render_run_logs(stats.get("log_lines"))
                                     st.success("✅ Scraping completado")
                                     st.session_state[f"scraping_{fuente.id}"] = None
 
@@ -795,6 +812,7 @@ with col2:
                                             sold_stats.get("sin_datos", 0),
                                         )
 
+                                    _render_run_logs(sold_stats.get("log_lines"))
                                     st.success("✅ Comprobación de bajas completada")
                                     st.session_state[f"scraping_{fuente.id}"] = None
 

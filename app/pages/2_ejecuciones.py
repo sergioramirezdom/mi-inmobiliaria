@@ -20,6 +20,23 @@ RECENT_RUNS_LIMIT = 30
 # Filas por fuente que se piden para derivar salud / resumen.
 PER_FUENTE_LIMIT = 50
 
+# Repo slug (no es un secreto) para enlazar a los logs de las ejecuciones
+# programadas en GitHub Actions. Los logs en la app solo existen para las
+# ejecuciones manuales lanzadas desde Fuentes; para las ejecuciones
+# programadas (CI) hay que verlos en Actions.
+GITHUB_REPO_SLUG = "sergioramirezdom/mi-inmobiliaria"
+GITHUB_ACTIONS_WORKFLOWS = {
+    "Scraping programado": "scheduler.yml",
+    "Comprobación de bajas": "sold_check.yml",
+}
+
+
+def _workflow_url(workflow_file: str) -> str:
+    return (
+        f"https://github.com/{GITHUB_REPO_SLUG}"
+        f"/actions/workflows/{workflow_file}"
+    )
+
 HEALTH_BADGE = {
     "OK": "🟢 OK",
     "STALE": "🟡 STALE",
@@ -125,6 +142,20 @@ def _render_recent_runs() -> None:
     st.dataframe(filas, use_container_width=True, hide_index=True)
 
 
+def _render_ci_logs_link() -> None:
+    st.subheader("Logs de ejecuciones programadas (CI)")
+    st.caption(
+        "Los logs dentro de la app solo existen para las ejecuciones manuales "
+        "lanzadas desde la página de Fuentes. Para las ejecuciones programadas "
+        "(GitHub Actions) consulta los logs directamente en Actions."
+    )
+    link_cols = st.columns(len(GITHUB_ACTIONS_WORKFLOWS))
+    for col, (label, workflow_file) in zip(
+        link_cols, GITHUB_ACTIONS_WORKFLOWS.items()
+    ):
+        col.link_button(f"🔗 {label} en Actions", _workflow_url(workflow_file))
+
+
 def main() -> None:
     now = datetime.utcnow()
     with Session(engine) as session:
@@ -132,6 +163,8 @@ def main() -> None:
     _render_fuente_health(fuentes, now)
     st.divider()
     _render_recent_runs()
+    st.divider()
+    _render_ci_logs_link()
 
 
 main()
