@@ -511,7 +511,7 @@ with col2:
                                         st.rerun()
 
                         # Test scraping buttons
-                        col_test, col_complete = st.columns([1, 1])
+                        col_test, col_complete, col_sold = st.columns([1, 1, 1])
                         with col_test:
                             if st.button(
                                 "🧪 Probar scraping",
@@ -536,6 +536,18 @@ with col2:
                                 type="primary",
                             ):
                                 st.session_state[f"scraping_{fuente.id}"] = "paginated"
+
+                        with col_sold:
+                            if st.button(
+                                "🔁 Comprobar bajas (sold-check)",
+                                key=f"soldcheck_{fuente.id}",
+                                disabled=not fuente.activa,
+                                help="Reejecuta la comprobación de bajas solo para esta fuente"
+                                if fuente.activa
+                                else "Activa la fuente primero",
+                                use_container_width=True,
+                            ):
+                                st.session_state[f"scraping_{fuente.id}"] = "sold_check"
 
                         # Execute scraping if button was clicked
                         scraping_mode = st.session_state.get(
@@ -652,11 +664,18 @@ with col2:
                                 f"🔄 Scrapeando {fuente.nombre} (completo, paginado)..."
                             ):
                                 try:
+                                    from admin.manual_run import run_manual_scrape
+
                                     with Session(engine) as session:
-                                        runner = ScraperRunner(session)
+                                        # Routed through app/admin/manual_run so a
+                                        # RegistroEjecucion row is written for manual
+                                        # full scrapes (run_paginated_scraper does not
+                                        # write one — only the scheduler does).
                                         stats = asyncio.run(
-                                            runner.run_paginated_scraper(
-                                                fuente, results_per_page=48
+                                            run_manual_scrape(
+                                                session,
+                                                fuente,
+                                                results_per_page=48,
                                             )
                                         )
 
@@ -747,6 +766,47 @@ with col2:
                                     st.error(f"❌ Error durante scraping: {str(e)}")
                                     st.session_state[f"scraping_{fuente.id}"] = None
 
+                        elif scraping_mode == "sold_check":
+                            with st.spinner(
+                                f"🔁 Comprobando bajas de {fuente.nombre}..."
+                            ):
+                                try:
+                                    from admin.manual_run import run_manual_sold_check
+
+                                    with Session(engine) as session:
+                                        sold_stats = asyncio.run(
+                                            run_manual_sold_check(session, fuente)
+                                        )
+
+                                    sold_cols = st.columns(3)
+                                    with sold_cols[0]:
+                                        st.metric(
+                                            "🔴 Vendidas",
+                                            sold_stats.get("vendidas", 0),
+                                        )
+                                    with sold_cols[1]:
+                                        st.metric(
+                                            "🟢 Activas",
+                                            sold_stats.get("activas", 0),
+                                        )
+                                    with sold_cols[2]:
+                                        st.metric(
+                                            "❓ Sin datos",
+                                            sold_stats.get("sin_datos", 0),
+                                        )
+
+                                    st.success("✅ Comprobación de bajas completada")
+                                    st.session_state[f"scraping_{fuente.id}"] = None
+
+                                except Exception as e:
+                                    logger.error(
+                                        f"Error en sold-check de {fuente.nombre}: {e}"
+                                    )
+                                    st.error(
+                                        f"❌ Error durante la comprobación de bajas: {str(e)}"
+                                    )
+                                    st.session_state[f"scraping_{fuente.id}"] = None
+
     except Exception as e:
         logger.error(f"Error al cargar fuentes: {e}")
         st.error(f"❌ Error al cargar las fuentes: {e}")
@@ -756,6 +816,7 @@ st.markdown("""
 ### 💡 Consejos de Uso
 - **Scraper de detalle**: selecciona el específico de cada inmobiliaria para extraer precio, habitaciones, etc.
 - **Probar scraping** (🧪): Prueba hasta 5 propiedades con sus datos de detalle (precio, fotos, etc.) sin guardar nada en la base de datos — solo vista previa
-- **Scraping Completo** (🌐): Ejecuta scraping en TODAS las páginas con paginación (más lento pero más completo)
+- **Scraping Completo** (🌐): Ejecuta scraping en TODAS las páginas con paginación (más lento pero más completo) y queda registrado en Ejecuciones
+- **Comprobar bajas** (🔁): Reejecuta el sold-check solo para esta fuente y registra el resultado en Ejecuciones
 - El scraping automático se ejecuta cada hora entre las 08:00 y 20:00 (UTC+2)
 """)
