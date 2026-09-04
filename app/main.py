@@ -15,8 +15,8 @@ logger = logging.getLogger(__name__)
 
 # Page config
 st.set_page_config(
-    page_title="Mi Inmobiliaria Personal",
-    page_icon="🏠",
+    page_title="Consola de scrapers — Mi Inmobiliaria",
+    page_icon="🛠️",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -57,39 +57,44 @@ if not db_ready:
 
 # Sidebar
 with st.sidebar:
-    st.markdown("# 🏠 Mi Inmobiliaria Personal")
+    st.markdown("# 🛠️ Consola de scrapers")
     st.markdown("---")
     st.markdown("""
-    Una herramienta para buscar vivienda de forma inteligente:
-    - Gestiona múltiples fuentes (inmobiliarias)
-    - Scralea automáticamente
-    - Filtra propiedades según tus preferencias
-    - Recibe alertas en Telegram
+    Portal de administración de los scrapers que alimentan la base de datos:
+    - **Fuentes** — alta y configuración de portales y sus scrapers
+    - **Ejecuciones** — historial de runs y salud por fuente
+    - **Alertas** — filtros que disparan avisos de Telegram
+
+    La búsqueda de vivienda para usuarios finales vive ahora en la app web
+    separada; este panel solo opera la recolección de datos.
     """)
 
 # Main page
-st.title("🏠 Mi Inmobiliaria Personal")
+st.title("🛠️ Consola de administración de scrapers")
 
 st.markdown("""
-## Bienvenido
+## Panel de operación
 
-Esta aplicación te ayuda a buscar vivienda de manera eficiente. Puedes:
+Desde aquí se administran las fuentes de datos, se lanzan scrapers y se vigila
+la salud de las ejecuciones. Secciones disponibles en el menú lateral:
 
-1. **Gestionar Fuentes** — Añade URLs de inmobiliarias (Idealista, Fotocasa, etc.)
-2. **Ver Propiedades** — Explora todas las propiedades con filtros avanzados
-3. **Configurar Alertas** — Recibe notificaciones en Telegram cuando aparezcan propiedades que te interesen
+1. **Fuentes** — Añade y configura portales inmobiliarios y el scraper de cada uno
+2. **Ejecuciones** — Revisa el historial de runs, los contadores y el estado de salud por fuente
+3. **Alertas** — Define los filtros que envían notificaciones a Telegram
 
 ### Cómo empezar:
 
-1. Ve a la página "Fuentes" en el menú lateral
-2. Añade la URL de una inmobiliaria
-3. Haz clic en "Probar scraping" para validar que funciona
-4. Una vez configuradas tus fuentes, establece filtros de alerta
-5. ¡Listo! Recibirás notificaciones automáticas
+1. Ve a "Fuentes" en el menú lateral y da de alta una fuente con su URL
+2. Elige el tipo de scraper y ejecuta una prueba para validar que extrae datos
+3. Deja que el scheduler recoja la fuente según su `intervalo_horas`
+4. Vigila "Ejecuciones" para confirmar que los runs terminan sin errores
+5. Ajusta las alertas para recibir avisos de las propiedades relevantes
 
 ---
 
-**Nota:** Las primeras ejecuciones pueden tardar un poco mientras se scrapean los sitios.
+**Nota:** El scheduler (`scripts/scheduler.py`) y GitHub Actions ejecutan los
+scrapers de forma periódica; las primeras ejecuciones de una fuente nueva pueden
+tardar más mientras se recorre todo el listado.
 """)
 
 if not db_ready:
