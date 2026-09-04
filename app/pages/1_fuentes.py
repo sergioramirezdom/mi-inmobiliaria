@@ -12,7 +12,16 @@ from sqlmodel import Session, select
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from admin.test_runner import (  # noqa: E402  (Streamlit-free, no DB import)
+    available_scraper_tests,
+    run_scraper_tests,
+)
+
 logger = logging.getLogger(__name__)
+
+# Scraper keys that actually have a fixture test file on disk (slice S7). Empty
+# on a deployment that shipped neither the tests/ tree nor pytest.
+SCRAPER_TESTS_MAP = available_scraper_tests()
 
 
 def _render_run_logs(log_lines) -> None:
@@ -527,7 +536,13 @@ with col2:
                                         st.rerun()
 
                         # Test scraping buttons
-                        col_test, col_complete, col_sold = st.columns([1, 1, 1])
+                        cfg_run = _parse_notas(fuente.notas)
+                        scraper_key = cfg_run.get("detail_scraper_type")
+                        has_scraper_tests = scraper_key in SCRAPER_TESTS_MAP
+
+                        col_test, col_complete, col_sold, col_runtests = st.columns(
+                            [1, 1, 1, 1]
+                        )
                         with col_test:
                             if st.button(
                                 "🧪 Probar scraping",
@@ -564,6 +579,18 @@ with col2:
                                 use_container_width=True,
                             ):
                                 st.session_state[f"scraping_{fuente.id}"] = "sold_check"
+
+                        with col_runtests:
+                            if st.button(
+                                "🧪 Ejecutar tests del scraper",
+                                key=f"runtests_{fuente.id}",
+                                disabled=not has_scraper_tests,
+                                help="Ejecuta tests/test_<scraper>_scraper.py en un subproceso"
+                                if has_scraper_tests
+                                else "No hay tests de fixtures para este scraper",
+                                use_container_width=True,
+                            ):
+                                st.session_state[f"scraping_{fuente.id}"] = "run_tests"
 
                         # Execute scraping if button was clicked
                         scraping_mode = st.session_state.get(
@@ -824,6 +851,21 @@ with col2:
                                         f"❌ Error durante la comprobación de bajas: {str(e)}"
                                     )
                                     st.session_state[f"scraping_{fuente.id}"] = None
+
+                        elif scraping_mode == "run_tests":
+                            with st.spinner(
+                                f"🧪 Ejecutando tests del scraper de {fuente.nombre}..."
+                            ):
+                                test_result = run_scraper_tests(scraper_key)
+                            if not test_result.ran:
+                                st.info(test_result.message)
+                            elif test_result.passed:
+                                st.success("✅ " + test_result.message)
+                            else:
+                                st.error("❌ " + test_result.message)
+                                with st.expander("Salida"):
+                                    st.code(test_result.stdout + test_result.stderr)
+                            st.session_state[f"scraping_{fuente.id}"] = None
 
     except Exception as e:
         logger.error(f"Error al cargar fuentes: {e}")

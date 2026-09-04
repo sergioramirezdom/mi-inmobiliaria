@@ -55,6 +55,9 @@ check_*.py
 # test_*.py excluded only outside tests/ directory
 test_*.py
 !tests/test_*.py
+# app/admin/test_runner.py is an application module (the in-app per-scraper
+# fixture test runner), not a local debug script — keep it tracked.
+!app/admin/test_runner.py
 app/pages/2_debug.py
 explore_*.py
 quick_*.py
