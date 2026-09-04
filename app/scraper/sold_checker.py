@@ -37,7 +37,11 @@ def _fuente_stats(por_fuente: Dict[int, Dict[str, int]], fuente_id: Optional[int
     )
 
 
-async def check_sold_properties(session: Session, limit: Optional[int] = None) -> Dict[str, Any]:
+async def check_sold_properties(
+    session: Session,
+    limit: Optional[int] = None,
+    fuente_id: Optional[int] = None,
+) -> Dict[str, Any]:
     """
     Fetch all active properties' detail pages and mark sold/reserved ones inactive.
 
@@ -46,6 +50,12 @@ async def check_sold_properties(session: Session, limit: Optional[int] = None) -
     result only deactivates after a second confirming strike
     (`STRIKE_THRESHOLD`), and fetch errors never touch the strike counter.
 
+    When `fuente_id` is omitted or `None`, every active property across all
+    fuentes is checked (the scheduler path). When `fuente_id` is given, only
+    that fuente's active properties are re-fetched, and the per-fuente
+    RegistroEjecucion loop below naturally emits exactly one `sold_check` row
+    for it. The omitted-parameter path is byte-identical to before.
+
     Returns stats dict including a 'vendidas_lista' list for Telegram
     notifications and a 'por_fuente' breakdown used to write one
     RegistroEjecucion row per fuente touched.
@@ -53,9 +63,11 @@ async def check_sold_properties(session: Session, limit: Optional[int] = None) -
     start_time = time.time()
     run_id = str(uuid.uuid4())
 
-    propiedades = session.exec(
-        select(Propiedad).where(Propiedad.activa == True).order_by(Propiedad.fecha_scraping.asc())
-    ).all()
+    stmt = select(Propiedad).where(Propiedad.activa == True)
+    if fuente_id is not None:
+        stmt = stmt.where(Propiedad.fuente_id == fuente_id)
+    stmt = stmt.order_by(Propiedad.fecha_scraping.asc())
+    propiedades = session.exec(stmt).all()
 
     if limit:
         propiedades = list(propiedades)[:limit]
