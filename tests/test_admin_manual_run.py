@@ -149,6 +149,53 @@ async def test_run_manual_scrape_honours_explicit_run_id_and_now():
 
 
 @pytest.mark.asyncio
+async def test_run_manual_scrape_persists_encontradas_on_success():
+    session = FakeSession()
+    fuente = _fuente(21)
+    stub = StubRunner(
+        stats={
+            "nuevas": 2,
+            "duplicadas": 1,
+            "errores": 0,
+            "urls_encontradas": 25,
+            "tiempo_segundos": 3.0,
+        }
+    )
+
+    await run_manual_scrape(session, fuente, runner=stub)
+
+    row = [r for r in session.added if isinstance(r, RegistroEjecucion)][0]
+    assert row.encontradas == 25
+
+
+@pytest.mark.asyncio
+async def test_run_manual_scrape_crash_path_writes_none_encontradas():
+    session = FakeSession()
+    fuente = _fuente(22)
+    stub = StubRunner(raises=RuntimeError("boom mid scrape"))
+
+    await run_manual_scrape(session, fuente, runner=stub)
+
+    row = [r for r in session.added if isinstance(r, RegistroEjecucion)][0]
+    assert row.encontradas is None
+    assert row.errores == 1
+
+
+@pytest.mark.asyncio
+async def test_run_manual_scrape_writes_none_encontradas_when_stats_key_absent():
+    session = FakeSession()
+    fuente = _fuente(23)
+    stub = StubRunner(
+        stats={"nuevas": 1, "duplicadas": 0, "errores": 0, "tiempo_segundos": 1.0}
+    )
+
+    await run_manual_scrape(session, fuente, runner=stub)
+
+    row = [r for r in session.added if isinstance(r, RegistroEjecucion)][0]
+    assert row.encontradas is None
+
+
+@pytest.mark.asyncio
 async def test_run_manual_scrape_records_row_on_mid_run_failure():
     session = FakeSession()
     fuente = _fuente(9)
@@ -163,6 +210,35 @@ async def test_run_manual_scrape_records_row_on_mid_run_failure():
     assert registros[0].errores > 0
     assert result["run_id"].startswith("manual-")
     assert "boom mid scrape" in str(result.get("error", ""))
+
+
+@pytest.mark.asyncio
+async def test_run_manual_scrape_create_failure_is_swallowed_without_masking_stats(monkeypatch):
+    """Threat: deploy/migration ordering — an unmigrated DB lacking the
+    encontradas column fails only the defensive RegistroEjecucionCRUD.create
+    call, which must be swallowed so the returned stats are still intact."""
+    session = FakeSession()
+    fuente = _fuente(31)
+    stub = StubRunner(
+        stats={
+            "nuevas": 4,
+            "duplicadas": 0,
+            "errores": 0,
+            "urls_encontradas": 9,
+            "tiempo_segundos": 2.0,
+        }
+    )
+
+    def _boom(sess, registro):
+        raise RuntimeError("column \"encontradas\" does not exist")
+
+    monkeypatch.setattr(manual_run_mod.RegistroEjecucionCRUD, "create", _boom)
+
+    result = await run_manual_scrape(session, fuente, runner=stub)
+
+    assert result["nuevas"] == 4
+    assert result["urls_encontradas"] == 9
+    assert result["run_id"].startswith("manual-")
 
 
 @pytest.mark.asyncio
