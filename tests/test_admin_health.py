@@ -1,12 +1,15 @@
 """Tests for app/admin/health.py — pure, Streamlit-free health derivation for
 the run-history / health dashboard (slice S3).
 
-Spec: sdd/scraper-admin-console/spec — "Derived Per-Fuente Health Status"
-(states OK / STALE / FAILING / UNKNOWN; precedence FAILING > STALE > OK).
+Spec: sdd/scraper-admin-health-signals/spec — "Derived Per-Fuente Health Status"
+(states OK / STALE / EMPTY / FAILING / UNKNOWN;
+precedence UNKNOWN > FAILING > EMPTY > STALE > OK).
 """
+import ast
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Optional
 
 import pytest
 
@@ -40,15 +43,21 @@ def _run(
     nuevas: int = 0,
     duplicadas: int = 0,
     age_hours: float = 1.0,
+    encontradas: Optional[int] = 1,
+    total: Optional[int] = None,
 ) -> RegistroEjecucion:
-    return RegistroEjecucion(
+    kwargs = dict(
         fuente_id=1,
         tipo=tipo,
         errores=errores,
         nuevas=nuevas,
         duplicadas=duplicadas,
         fecha=NOW - timedelta(hours=age_hours),
+        encontradas=encontradas,
     )
+    if total is not None:
+        kwargs["total"] = total
+    return RegistroEjecucion(**kwargs)
 
 
 def test_staleness_factor_is_a_named_constant():
@@ -187,3 +196,95 @@ def test_summarize_empty_rows_is_all_none():
     assert summary.last_successful_scrape_at is None
     assert summary.last_nuevas is None
     assert summary.last_errores is None
+
+
+# --- S3: EMPTY state -------------------------------------------------------
+
+
+def test_empty_when_latest_scrape_found_zero_listings():
+    rows = [_run(errores=0, encontradas=0, age_hours=1)]
+    status, reason = derive_health(_fuente(intervalo_horas=24, activa=True), rows, now=NOW)
+    assert status == "EMPTY"
+    assert reason
+
+
+def test_empty_via_legacy_fallback_total_zero():
+    rows = [_run(errores=0, encontradas=None, total=0, age_hours=1)]
+    status, _ = derive_health(_fuente(intervalo_horas=24, activa=True), rows, now=NOW)
+    assert status == "EMPTY"
+
+
+def test_legacy_row_with_nonzero_total_is_ok_not_empty():
+    rows = [_run(errores=0, encontradas=None, total=5, nuevas=5, age_hours=1)]
+    status, _ = derive_health(_fuente(intervalo_horas=24, activa=True), rows, now=NOW)
+    assert status == "OK"
+
+
+def test_not_empty_when_legacy_row_parsed_only_rentals_or_garages():
+    # encontradas > 0 (listing parser worked) but total == 0 (all filtered out) -> NOT EMPTY
+    rows = [_run(errores=0, encontradas=5, total=0, age_hours=1)]
+    status, _ = derive_health(_fuente(intervalo_horas=24, activa=True), rows, now=NOW)
+    assert status != "EMPTY"
+    assert status == "OK"
+
+
+def test_failing_outranks_empty():
+    rows = [_run(errores=2, encontradas=0, age_hours=1)]
+    status, _ = derive_health(_fuente(intervalo_horas=24, activa=True), rows, now=NOW)
+    assert status == "FAILING"
+
+
+def test_empty_outranks_stale():
+    # scrape older than any staleness window, but it ran and parsed nothing
+    rows = [_run(errores=0, encontradas=0, age_hours=100)]
+    status, _ = derive_health(_fuente(intervalo_horas=2, activa=True), rows, now=NOW)
+    assert status == "EMPTY"
+
+
+def test_inactive_fuente_is_never_empty():
+    rows = [_run(errores=0, encontradas=0, age_hours=1)]
+    status, _ = derive_health(_fuente(intervalo_horas=24, activa=False), rows, now=NOW)
+    assert status != "EMPTY"
+    assert status == "OK"
+
+
+def test_inactive_fuente_is_not_stale():
+    rows = [_run(errores=0, encontradas=1, age_hours=500)]
+    status, _ = derive_health(_fuente(intervalo_horas=24, activa=False), rows, now=NOW)
+    assert status == "OK"
+
+
+def test_normal_non_empty_scrape_is_ok():
+    rows = [_run(errores=0, encontradas=40, nuevas=12, age_hours=5)]
+    status, _ = derive_health(_fuente(intervalo_horas=24, activa=True), rows, now=NOW)
+    assert status == "OK"
+
+
+def test_empty_reason_differs_between_real_count_and_legacy_fallback():
+    real_rows = [_run(errores=0, encontradas=0, age_hours=1)]
+    legacy_rows = [_run(errores=0, encontradas=None, total=0, age_hours=1)]
+    _, real_reason = derive_health(_fuente(activa=True), real_rows, now=NOW)
+    _, legacy_reason = derive_health(_fuente(activa=True), legacy_rows, now=NOW)
+    assert real_reason != legacy_reason
+    assert "legacy" in legacy_reason
+    assert "legacy" not in real_reason
+
+
+def _load_health_badge_map():
+    """Extract HEALTH_BADGE from app/pages/2_ejecuciones.py without running Streamlit."""
+    source = (
+        Path(__file__).parent.parent / "app" / "pages" / "2_ejecuciones.py"
+    ).read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and any(
+            isinstance(t, ast.Name) and t.id == "HEALTH_BADGE" for t in node.targets
+        ):
+            return ast.literal_eval(node.value)
+    raise AssertionError("HEALTH_BADGE not found in 2_ejecuciones.py")
+
+
+def test_health_badge_covers_every_derivable_status():
+    badge = _load_health_badge_map()
+    assert {"OK", "STALE", "EMPTY", "FAILING", "UNKNOWN"} <= set(badge)
+    assert "EMPTY" in badge["EMPTY"]
