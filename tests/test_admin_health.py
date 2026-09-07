@@ -8,10 +8,13 @@ import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).parent.parent / "app"))
 
 from db.models import Fuente, RegistroEjecucion  # noqa: E402
 from admin.health import (  # noqa: E402
+    MIN_STALENESS_HOURS,
     STALENESS_FACTOR,
     derive_health,
     last_successful_scrape,
@@ -51,6 +54,51 @@ def _run(
 def test_staleness_factor_is_a_named_constant():
     assert isinstance(STALENESS_FACTOR, (int, float))
     assert STALENESS_FACTOR >= 1
+
+
+def test_min_staleness_hours_is_a_named_constant():
+    assert isinstance(MIN_STALENESS_HOURS, (int, float))
+    assert MIN_STALENESS_HOURS >= 1
+
+
+@pytest.mark.parametrize(
+    "age_hours, expected",
+    [
+        (13.0, "OK"),     # today's false-STALE case: window math gives 4h, floor lifts to 20h
+        (19.9, "OK"),      # just inside the 20h floor
+        (20.1, "STALE"),   # just past the 20h floor
+        (25.0, "STALE"),   # well past the floor
+    ],
+)
+def test_staleness_floor_governs_short_interval_fuente(age_hours, expected):
+    # intervalo_horas=2 -> STALENESS_FACTOR*2 = 4h, but MIN_STALENESS_HOURS lifts the window to 20h
+    rows = [_run(errores=0, nuevas=1, age_hours=age_hours)]
+    status, _ = derive_health(_fuente(intervalo_horas=2, activa=True), rows, now=NOW)
+    assert status == expected
+
+
+@pytest.mark.parametrize(
+    "age_hours, expected",
+    [
+        (30.0, "OK"),      # inside the 48h factor window
+        (47.9, "OK"),
+        (60.0, "STALE"),   # past the 48h window; the 20h floor never weakens it
+    ],
+)
+def test_staleness_floor_does_not_weaken_long_interval_fuente(age_hours, expected):
+    # intervalo_horas=24 -> STALENESS_FACTOR*24 = 48h > 20h floor, so the window stays 48h
+    rows = [_run(errores=0, nuevas=1, age_hours=age_hours)]
+    status, _ = derive_health(_fuente(intervalo_horas=24, activa=True), rows, now=NOW)
+    assert status == expected
+
+
+def test_stale_reason_names_both_the_floor_and_the_factor():
+    rows = [_run(errores=0, age_hours=25)]
+    status, reason = derive_health(_fuente(intervalo_horas=2, activa=True), rows, now=NOW)
+    assert status == "STALE"
+    assert "20" in reason              # the MIN_STALENESS_HOURS floor
+    assert "floor" in reason
+    assert "intervalo_horas" in reason
 
 
 def test_unknown_when_no_runs():
