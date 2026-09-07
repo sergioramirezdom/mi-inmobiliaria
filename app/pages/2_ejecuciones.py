@@ -40,6 +40,7 @@ def _workflow_url(workflow_file: str) -> str:
 HEALTH_BADGE = {
     "OK": "🟢 OK",
     "STALE": "🟡 STALE",
+    "EMPTY": "🟠 EMPTY",
     "FAILING": "🔴 FAILING",
     "UNKNOWN": "⚪ UNKNOWN",
 }

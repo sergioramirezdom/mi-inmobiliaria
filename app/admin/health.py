@@ -9,15 +9,23 @@ States (spec: sdd/scraper-admin-console/spec — "Derived Per-Fuente Health Stat
 * ``UNKNOWN``  — no scrape runs recorded for the fuente.
 * ``FAILING``  — the most recent ``scrape`` row errored (``errores > 0``),
   regardless of recency.
+* ``EMPTY``    — the latest ``scrape`` row ran cleanly (``errores == 0``), the
+  fuente is ``activa``, and it parsed zero listing URLs. The real count is
+  ``RegistroEjecucion.encontradas`` when set; legacy rows (``encontradas is
+  None``) fall back to ``total == 0``. Judged on the latest scrape row
+  regardless of its age — a scrape that ran and parsed nothing is a fault
+  whether it ran an hour ago or a week ago.
 * ``STALE``    — the fuente is ``activa`` and its last successful scrape is
   older than ``max(MIN_STALENESS_HOURS, STALENESS_FACTOR * intervalo_horas)``
   hours, while the latest scrape itself did not error. The
   ``MIN_STALENESS_HOURS`` floor absorbs the nightly CI blackout so
   short-``intervalo_horas`` fuentes stop flipping ``STALE`` every morning.
-* ``OK``       — has runs, the latest scrape is clean and recent enough.
+* ``OK``       — has runs, the latest scrape is clean, non-empty and recent enough.
 
-Precedence when several conditions apply: ``FAILING > STALE > OK``.
-``UNKNOWN`` only when there are no scrape rows.
+Precedence when several conditions apply:
+``UNKNOWN > FAILING > EMPTY > STALE > OK``. ``EMPTY`` outranks ``STALE``
+because a scrape that ran and parsed nothing is sharper than "hasn't run
+recently". ``UNKNOWN`` only when there are no scrape rows.
 
 This module has no UI-framework dependency and never touches the database;
 callers pass already-fetched rows (via
@@ -46,7 +54,7 @@ MIN_STALENESS_HOURS = 20
 
 SCRAPE = "scrape"
 
-HealthStatus = str  # "OK" | "STALE" | "FAILING" | "UNKNOWN"
+HealthStatus = str  # "OK" | "STALE" | "EMPTY" | "FAILING" | "UNKNOWN"
 
 
 @dataclass(frozen=True)
@@ -101,6 +109,19 @@ def summarize_fuente_runs(registros: Iterable) -> RunSummary:
     )
 
 
+def _is_empty_scrape(row) -> bool:
+    """True when a CLEAN scrape row parsed zero listing URLs.
+
+    Prefers the persisted raw listing-URL count (``encontradas``); legacy rows
+    written before that column fall back to ``total == 0``. ``getattr`` (not
+    attribute access) so pre-column row objects and test doubles stay usable.
+    """
+    encontradas = getattr(row, "encontradas", None)
+    if encontradas is not None:
+        return int(encontradas) == 0
+    return int(getattr(row, "total", 0) or 0) == 0
+
+
 def _staleness_window(fuente) -> timedelta:
     hours = max(
         MIN_STALENESS_HOURS,
@@ -128,6 +149,16 @@ def derive_health(
 
     if (latest.errores or 0) > 0:
         return ("FAILING", f"latest scrape recorded {latest.errores} error(s)")
+
+    # `latest` is clean here (FAILING already returned otherwise). EMPTY outranks
+    # STALE and is judged on this row regardless of its age.
+    if getattr(fuente, "activa", True) and _is_empty_scrape(latest):
+        if getattr(latest, "encontradas", None) is not None:
+            return ("EMPTY", "latest scrape found 0 listing URLs on the source pages")
+        return (
+            "EMPTY",
+            "latest scrape recorded no results (legacy row, no encontradas)",
+        )
 
     success = last_successful_scrape(registros)
     # `latest` is itself a clean scrape here, so `success` is never None.
