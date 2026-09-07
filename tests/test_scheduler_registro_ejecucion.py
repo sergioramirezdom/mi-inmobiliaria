@@ -80,6 +80,64 @@ async def test_scrape_fuente_writes_registro_ejecucion_row(monkeypatch):
     assert registro.duracion_segundos == 12.5
 
 
+async def test_scrape_fuente_persists_encontradas_from_urls_encontradas(monkeypatch):
+    fuente = _fuente()
+    fake_session = FakeSession(fuente)
+    monkeypatch.setattr(scheduler_mod, "Session", lambda engine: _FakeSessionCtx(fake_session))
+
+    stats = {
+        "nuevas": 3,
+        "duplicadas": 5,
+        "errores": 0,
+        "urls_encontradas": 17,
+        "paginas_procesadas": 2,
+        "tiempo_segundos": 9.0,
+    }
+
+    fake_runner = MagicMock()
+    fake_runner.run_paginated_scraper = AsyncMock(return_value=stats)
+    monkeypatch.setattr(scheduler_mod, "ScraperRunner", lambda session: fake_runner)
+
+    created = MagicMock()
+    monkeypatch.setattr(scheduler_mod.RegistroEjecucionCRUD, "create", created)
+
+    scheduler = ScraperScheduler()
+    await scheduler._scrape_fuente(fuente)
+
+    _, registro = created.call_args[0]
+    assert registro.encontradas == 17
+
+
+async def test_scrape_fuente_writes_none_encontradas_on_whole_run_failure(monkeypatch):
+    fuente = _fuente()
+    fake_session = FakeSession(fuente)
+    monkeypatch.setattr(scheduler_mod, "Session", lambda engine: _FakeSessionCtx(fake_session))
+
+    # runner.run_paginated_scraper crash path: urls_encontradas=0 + an error key
+    stats = {
+        "nuevas": 0,
+        "duplicadas": 0,
+        "errores": 0,
+        "urls_encontradas": 0,
+        "paginas_procesadas": 0,
+        "tiempo_segundos": 0.1,
+        "error": "boom",
+    }
+
+    fake_runner = MagicMock()
+    fake_runner.run_paginated_scraper = AsyncMock(return_value=stats)
+    monkeypatch.setattr(scheduler_mod, "ScraperRunner", lambda session: fake_runner)
+
+    created = MagicMock()
+    monkeypatch.setattr(scheduler_mod.RegistroEjecucionCRUD, "create", created)
+
+    scheduler = ScraperScheduler()
+    await scheduler._scrape_fuente(fuente)
+
+    _, registro = created.call_args[0]
+    assert registro.encontradas is None
+
+
 async def test_scrape_fuente_passes_run_id_through_to_registro_ejecucion(monkeypatch):
     fuente = _fuente()
     fake_session = FakeSession(fuente)

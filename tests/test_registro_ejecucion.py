@@ -98,6 +98,45 @@ def test_registro_ejecucion_run_id_defaults_to_none():
     assert registro.run_id is None
 
 
+def test_registro_ejecucion_accepts_and_persists_encontradas():
+    engine = _memory_engine()
+    _create_fuente_and_registro_tables(engine)
+    with Session(engine) as session:
+        fuente = Fuente(nombre="Test", url="http://example.com/enc")
+        session.add(fuente)
+        session.commit()
+        session.refresh(fuente)
+
+        registro = RegistroEjecucion(
+            fuente_id=fuente.id,
+            tipo="scrape",
+            total=1,
+            encontradas=7,
+        )
+        session.add(registro)
+        session.commit()
+        session.refresh(registro)
+
+        assert registro.encontradas == 7
+
+
+def test_registro_ejecucion_encontradas_defaults_to_none():
+    registro = RegistroEjecucion(fuente_id=1, tipo="scrape", total=1)
+    assert registro.encontradas is None
+
+
+def test_registro_ejecucion_sold_check_row_leaves_encontradas_none():
+    """A tipo="sold_check" row never sets encontradas — it must stay NULL."""
+    registro = RegistroEjecucion(
+        fuente_id=1,
+        tipo="sold_check",
+        total=10,
+        activas=8,
+        vendidas=2,
+    )
+    assert registro.encontradas is None
+
+
 def test_registro_ejecucion_nuevas_duplicadas_are_optional_for_sold_check_rows():
     engine = _memory_engine()
     _create_fuente_and_registro_tables(engine)

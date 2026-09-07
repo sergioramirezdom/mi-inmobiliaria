@@ -148,6 +148,11 @@ class ScraperScheduler:
                 nuevas = stats.get("nuevas", 0)
                 duplicadas = stats.get("duplicadas", 0)
                 errores = stats.get("errores", 0)
+                # Real listing-URL count found before dedup/filtering. On a
+                # whole-run failure the synthetic stats dict carries
+                # urls_encontradas=0 plus an "error" key — persisting that 0
+                # would falsely assert the parser ran, so write None instead.
+                encontradas = None if stats.get("error") else stats.get("urls_encontradas")
                 paginas = stats.get("paginas_procesadas", 0)
                 tiempo = stats.get("tiempo_segundos", 0)
 
@@ -171,6 +176,7 @@ class ScraperScheduler:
                             total=nuevas + duplicadas + errores,
                             nuevas=nuevas,
                             duplicadas=duplicadas,
+                            encontradas=encontradas,
                             errores=errores,
                             duracion_segundos=tiempo,
                             run_id=run_id,

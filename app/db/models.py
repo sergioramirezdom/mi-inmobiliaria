@@ -165,6 +165,7 @@ class RegistroEjecucion(SQLModel, table=True):
     errores: int = 0
     nuevas: Optional[int] = None  # scrape only
     duplicadas: Optional[int] = None  # scrape only
+    encontradas: Optional[int] = None  # scrape only: raw listing URLs found, pre-filter/pre-dedup
     duracion_segundos: Optional[float] = None
     run_id: Optional[str] = Field(default=None, index=True)  # UUID4 shared by all rows from one top-level cycle
 

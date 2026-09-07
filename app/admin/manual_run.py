@@ -85,12 +85,19 @@ async def run_manual_scrape(
         if duracion is None:
             duracion = stats.get("duracion_segundos")
 
+        # Real listing-URL count found before dedup/filtering. A whole-run
+        # failure (stats carries an "error" key, and errores was just forced
+        # to 1 above) must persist None, never 0 — a crashed run parsed
+        # nothing because nothing ran, and 0 would read as EMPTY not FAILING.
+        encontradas = None if stats.get("error") else stats.get("urls_encontradas")
+
         registro = RegistroEjecucion(
             fuente_id=fuente.id,
             tipo="scrape",
             total=nuevas + duplicadas + errores,
             nuevas=nuevas,
             duplicadas=duplicadas,
+            encontradas=encontradas,
             errores=errores,
             duracion_segundos=duracion,
             run_id=run_id,
