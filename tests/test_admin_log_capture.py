@@ -72,6 +72,22 @@ def test_buffer_is_capped_at_max_lines_and_prepends_truncation_marker():
     assert not any("line 0" == ln for ln in lines)
 
 
+def test_typical_run_of_1500_lines_is_retained_without_truncation():
+    """A full manual-scrape log (well over the old 500 cap) must survive intact
+    so the operator sees the whole run, not just its tail (design #209 pins
+    MAX_LINES=2000)."""
+    logger = logging.getLogger("scraper.test_capture_large_run")
+
+    with capture_logs() as cap:
+        for i in range(1500):
+            logger.info("line %d", i)
+
+    lines = cap.lines()
+    assert len(lines) == 1500
+    assert not any("truncated" in ln for ln in lines)
+    assert "line 0" in lines[0]
+
+
 def test_handler_is_detached_after_the_block_even_when_body_raises():
     root = logging.getLogger()
     before = list(root.handlers)

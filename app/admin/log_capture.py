@@ -19,7 +19,9 @@ from typing import Iterator, Optional, Sequence
 
 # Hard cap on retained formatted log lines. Past this, only the most recent
 # ``MAX_LINES`` lines are kept and a marker line is prepended by ``lines()``.
-MAX_LINES = 500
+# 2000 keeps a full manual-scrape run visible (design #209); the tail bias means
+# an overflowing run still shows its most recent output.
+MAX_LINES = 2000
 
 # When the caller passes no explicit names, attach to the root logger ("") so
 # every record at ``level`` and above is captured regardless of which module

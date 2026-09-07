@@ -208,9 +208,6 @@ def test_pytest_available_false_when_tests_dir_absent(tmp_path, monkeypatch):
 
 
 def test_pytest_available_false_on_probe_exception():
-    runner = FakeRunner()
-    runner.__call__ = None  # force a TypeError when invoked
-
     def boom(cmd, **kwargs):
         raise FileNotFoundError("python gone")
 
