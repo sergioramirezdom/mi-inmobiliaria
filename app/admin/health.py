@@ -10,8 +10,10 @@ States (spec: sdd/scraper-admin-console/spec — "Derived Per-Fuente Health Stat
 * ``FAILING``  — the most recent ``scrape`` row errored (``errores > 0``),
   regardless of recency.
 * ``STALE``    — the fuente is ``activa`` and its last successful scrape is
-  older than ``STALENESS_FACTOR * intervalo_horas``, while the latest scrape
-  itself did not error.
+  older than ``max(MIN_STALENESS_HOURS, STALENESS_FACTOR * intervalo_horas)``
+  hours, while the latest scrape itself did not error. The
+  ``MIN_STALENESS_HOURS`` floor absorbs the nightly CI blackout so
+  short-``intervalo_horas`` fuentes stop flipping ``STALE`` every morning.
 * ``OK``       — has runs, the latest scrape is clean and recent enough.
 
 Precedence when several conditions apply: ``FAILING > STALE > OK``.
@@ -33,6 +35,14 @@ from typing import Iterable, List, Optional, Tuple
 # explicit value, so 2x the interval is used: one missed cycle is tolerated,
 # two consecutive missed cycles flag the fuente.
 STALENESS_FACTOR = 2
+
+# Absolute lower bound on the staleness window, regardless of `intervalo_horas`.
+# `.github/workflows/scheduler.yml` only fires `0 6-18 * * *`, so there is a ~12h
+# nightly blackout plus a few dropped GitHub Actions triggers at either end
+# (~18h realistic healthy worst case). 20h = that worst case + a 2h margin, and
+# still < 24h so a genuinely dead fuente is flagged within the same calendar day.
+# Only binds when STALENESS_FACTOR * intervalo_horas < 20 (i.e. intervalo_horas <= 9).
+MIN_STALENESS_HOURS = 20
 
 SCRAPE = "scrape"
 
@@ -92,7 +102,11 @@ def summarize_fuente_runs(registros: Iterable) -> RunSummary:
 
 
 def _staleness_window(fuente) -> timedelta:
-    return timedelta(hours=STALENESS_FACTOR * max(1, int(fuente.intervalo_horas or 0)))
+    hours = max(
+        MIN_STALENESS_HOURS,
+        STALENESS_FACTOR * max(1, int(fuente.intervalo_horas or 0)),
+    )
+    return timedelta(hours=hours)
 
 
 def derive_health(
@@ -122,8 +136,9 @@ def derive_health(
     if getattr(fuente, "activa", True) and age > window:
         return (
             "STALE",
-            f"last successful scrape {age} old exceeds "
-            f"{STALENESS_FACTOR}x intervalo_horas ({window})",
+            f"last successful scrape {age} old exceeds the {window} staleness "
+            f"window (max({MIN_STALENESS_HOURS}h floor, "
+            f"{STALENESS_FACTOR}x intervalo_horas))",
         )
 
     return ("OK", "latest scrape is clean and within the staleness window")
