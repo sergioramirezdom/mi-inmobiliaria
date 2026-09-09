@@ -15,6 +15,7 @@ from db.models import (
     PrecioHistorico,
     RegistroEjecucion,
     EstadisticaNotarial,
+    EstadisticaZonaNotarial,
 )
 
 logger = logging.getLogger(__name__)
@@ -429,3 +430,52 @@ class EstadisticaNotarialCRUD:
     def get_all(session: Session) -> List[EstadisticaNotarial]:
         """Get all stored rows across every combo."""
         return session.exec(select(EstadisticaNotarial)).all()
+
+
+# CRUD Helpers for EstadisticaZonaNotarial (append-only public price-avg series)
+class EstadisticaZonaNotarialCRUD:
+    """CRUD operations for EstadisticaZonaNotarial. Rows are append-only — no update/delete."""
+
+    @staticmethod
+    def create(session: Session, estadistica: EstadisticaZonaNotarial) -> EstadisticaZonaNotarial:
+        """Persist one public zona price-avg row."""
+        session.add(estadistica)
+        session.commit()
+        session.refresh(estadistica)
+        return estadistica
+
+    @staticmethod
+    def get_by_zona_combo(
+        session: Session,
+        zona: str,
+        property_type: str,
+        construction_type: str,
+    ) -> List[EstadisticaZonaNotarial]:
+        """Get all stored rows for a single (zona, property, construction) combo,
+        most recent captured_at first."""
+        stmt = (
+            select(EstadisticaZonaNotarial)
+            .where(EstadisticaZonaNotarial.zona == zona)
+            .where(EstadisticaZonaNotarial.property_type == property_type)
+            .where(EstadisticaZonaNotarial.construction_type == construction_type)
+            .order_by(EstadisticaZonaNotarial.captured_at.desc())
+        )
+        return session.exec(stmt).all()
+
+    @staticmethod
+    def get_latest_for_zona_combo(
+        session: Session,
+        zona: str,
+        property_type: str,
+        construction_type: str,
+    ) -> Optional[EstadisticaZonaNotarial]:
+        """Get the most recent stored row for a zona combo, or None if no rows exist yet."""
+        rows = EstadisticaZonaNotarialCRUD.get_by_zona_combo(
+            session, zona, property_type, construction_type
+        )
+        return rows[0] if rows else None
+
+    @staticmethod
+    def get_all(session: Session) -> List[EstadisticaZonaNotarial]:
+        """Get all stored rows across every zona combo."""
+        return session.exec(select(EstadisticaZonaNotarial)).all()

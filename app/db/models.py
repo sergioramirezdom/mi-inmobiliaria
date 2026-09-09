@@ -8,7 +8,7 @@ from sqlalchemy import ARRAY
 # Handle Streamlit reloads: Clean up existing tables from metadata
 # so they can be redefined without "already defined" errors
 try:
-    for _t in ('fuente', 'propiedad', 'filtroalerta', 'preciohistorico', 'registroejecucion', 'estadisticanotarial'):
+    for _t in ('fuente', 'propiedad', 'filtroalerta', 'preciohistorico', 'registroejecucion', 'estadisticanotarial', 'estadisticazonanotarial'):
         if _t in SQLModel.metadata.tables:
             del SQLModel.metadata.tables[_t]
 except Exception:
@@ -194,4 +194,29 @@ class EstadisticaNotarial(SQLModel, table=True):
     report_date: datetime
     raw_json: str  # full response body — no credentials, never redacted
     created_at: datetime = Field(default_factory=datetime.utcnow)
-    
+
+
+class EstadisticaZonaNotarial(SQLModel, table=True):
+    """Public price-avg row for one (zona, property_type, construction_type).
+
+    Append-only. A row is written only when the outcome pair
+    (sin_datos, price_avg) differs from the latest stored row for the same
+    zona+combo — the endpoint returns no timestamp, so outcome change is the
+    only available dedup signal. property_type/construction_type store the
+    human-readable slug, not the numeric API code — the code→slug map lives
+    only in scraper/notariado_client.py.
+
+    Unlike EstadisticaNotarial this row stores NO raw response body: the
+    EUR/m2 average is the only value of interest, and where_clause +
+    captured_at + sin_datos already carry full provenance.
+    """
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    zona: str = Field(index=True)  # e.g. "crevillet"
+    property_type: str = Field(index=True)  # piso | casa
+    construction_type: str = Field(index=True)  # obra_nueva | segunda_mano
+    price_avg: Optional[float] = None  # EUR/m2; NULL exactly when sin_datos
+    sin_datos: bool = Field(default=False)  # True iff API returned PAV002
+    where_clause: str  # exact ArcGIS clause used for this query
+    captured_at: datetime = Field(default_factory=datetime.utcnow, index=True)
+
