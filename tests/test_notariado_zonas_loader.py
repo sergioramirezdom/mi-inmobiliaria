@@ -86,6 +86,27 @@ def test_available_zonas_lists_crevillet():
     assert nz.available_zonas() == list(nz.ZONA_SLUGS)
 
 
+@pytest.mark.parametrize(
+    "slug",
+    ["crevillet", "pinar_alto", "pago_alhaja", "soto_vistahermosa_camaleon"],
+)
+def test_every_registered_zona_loads_a_real_geometry(slug):
+    assert slug in nz.ZONA_SLUGS
+
+    geometry = nz.load_zona_geometry(slug)
+
+    assert isinstance(geometry, dict)
+    assert isinstance(geometry["rings"], list) and geometry["rings"]
+    assert geometry["spatialReference"]["wkid"] == 102100
+    assert all(len(ring) >= 4 for ring in geometry["rings"])
+
+
+def test_pago_alhaja_geometry_keeps_both_rings():
+    geometry = nz.load_zona_geometry("pago_alhaja")
+
+    assert len(geometry["rings"]) == 2
+
+
 def test_available_zonas_result_is_a_copy():
     result = nz.available_zonas()
     result.append("mutated")

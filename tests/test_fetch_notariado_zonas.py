@@ -49,7 +49,13 @@ def test_engine(monkeypatch):
 
 @pytest.fixture()
 def stub_geometry(monkeypatch):
-    """Return the fixture polygon for every registered slug."""
+    """Return the fixture polygon for every registered slug.
+
+    Also pins ``ZONA_SLUGS`` to a single zona so these ingestion-behavior
+    tests stay deterministic regardless of how many real zonas the registry
+    grows to.
+    """
+    monkeypatch.setattr(fnz, "ZONA_SLUGS", ["crevillet"])
     monkeypatch.setattr(fnz, "load_zona_geometry", lambda slug: dict(GEOMETRY_FIXTURE))
 
 
