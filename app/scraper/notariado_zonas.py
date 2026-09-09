@@ -16,7 +16,12 @@ from pathlib import Path
 
 _GEOMETRY_DIR = Path(__file__).parent / "notariado_zonas"
 
-ZONA_SLUGS: list[str] = ["crevillet"]
+ZONA_SLUGS: list[str] = [
+    "crevillet",
+    "pinar_alto",
+    "pago_alhaja",
+    "soto_vistahermosa_camaleon",
+]
 
 
 class ZonaGeometryError(Exception):
