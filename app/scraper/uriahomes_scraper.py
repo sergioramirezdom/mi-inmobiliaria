@@ -22,6 +22,7 @@ from bs4 import BeautifulSoup
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from .config import ScraperConfig
+from .geo_utils import coords_from_cargar_mapa
 from .zona_utils import extract_from_url as _zona_from_url, extract_from_html as _zona_from_html
 
 from .foto_extractor import extraer_fotos
@@ -212,11 +213,12 @@ class UriaHomesScraper:
             if fotos:
                 data["fotos"] = fotos
 
-        # Coordinates from JavaScript
+        # Coordinates from JavaScript (InmoServer marks them as approximate)
         lat, lng = _extract_coords_from_js(html)
         if lat is not None and lng is not None:
             data["latitud"] = lat
             data["longitud"] = lng
+            data["ubicacion_aproximada"] = True
 
         # Zona fallback: URL first, then HTML
         if not data.get("barrio"):
@@ -431,18 +433,6 @@ def _extract_coords_from_js(html: str):
     """Extract lat/lng from cargar_mapa_ubicacion_aproximada(...) JavaScript.
 
     Pattern: cargar_mapa_ubicacion_aproximada("map2", 36.6085028, -6.2167529, ...)
+    Thin wrapper over the shared geo_utils extractor.
     """
-    if not html:
-        return None, None
-    m = re.search(
-        r"cargar_mapa_ubicacion_aproximada\([^,]+,\s*([\d.-]+),\s*([\d.-]+)",
-        html,
-    )
-    if not m:
-        return None, None
-    try:
-        lat = float(m.group(1))
-        lng = float(m.group(2))
-    except (ValueError, TypeError):
-        return None, None
-    return lat, lng
+    return coords_from_cargar_mapa(html)

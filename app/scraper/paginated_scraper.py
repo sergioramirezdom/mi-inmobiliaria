@@ -20,6 +20,7 @@ from .zona_normalizer import CatalogoInvalidoError
 from .check_outcome import CheckOutcome, classify_check_outcome, apply_check_outcome
 from .price_drop import build_price_drop_entry
 from db.models import Fuente, Propiedad, PrecioHistorico
+from db.database import UbicacionAproximadaCRUD
 
 
 class PaginatedScraper:
@@ -323,6 +324,22 @@ class PaginatedScraper:
                         if propiedad.precio:
                             self.db_session.add(PrecioHistorico(propiedad_id=propiedad.id, precio=propiedad.precio))
                             self.db_session.commit()
+
+                        # Flag approximate location when the scraper reported one
+                        # (exact locations leave app_ubicacion_aproximada untouched).
+                        if (
+                            raw_data.get("ubicacion_aproximada")
+                            and propiedad.latitud is not None
+                            and propiedad.longitud is not None
+                        ):
+                            try:
+                                UbicacionAproximadaCRUD.marcar_aproximada(
+                                    self.db_session,
+                                    propiedad.id,
+                                    int(raw_data.get("radio_m") or 300),
+                                )
+                            except Exception as e:
+                                self.logger.warning(f"No se pudo marcar ubicación aproximada: {e}")
 
                         self.logger.debug(f"✓ Saved new property: {propiedad.titulo}")
                         stats["nuevas"] += 1
