@@ -34,6 +34,7 @@ from bs4 import BeautifulSoup
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from .config import ScraperConfig
+from .geo_utils import coords_from_cargar_mapa
 from .zona_utils import extract_from_url as _zona_from_url, extract_from_html as _zona_from_html
 
 logger = logging.getLogger(__name__)
@@ -200,6 +201,13 @@ class TularScraper:
         # Zona fallback: URL first, then HTML text
         if not data.get("barrio"):
             data["barrio"] = _zona_from_url(url) or _zona_from_html(page_text, soup)
+
+        # Approximate map coordinates (InmoServer JS)
+        lat, lng = coords_from_cargar_mapa(html)
+        if lat is not None and lng is not None:
+            data["latitud"] = lat
+            data["longitud"] = lng
+            data["ubicacion_aproximada"] = True
 
         return data
 

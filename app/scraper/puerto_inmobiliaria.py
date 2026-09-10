@@ -7,6 +7,7 @@ from bs4 import BeautifulSoup
 
 from .exceptions import ParsingException
 from .config import ScraperConfig
+from .geo_utils import coords_from_apinmo_json
 from .zona_utils import extract_from_url as _zona_from_url, extract_from_html as _zona_from_html
 from .foto_extractor import extraer_fotos
 from .operacion_detector import detectar_operacion, es_garaje
@@ -178,6 +179,13 @@ class PuertoInmobiliariaScraper:
                 url=property_url,
             ):
                 enriched_data["tipo_propiedad"] = "garaje"
+
+            # Approximate map coordinates (apinmo record / googleplano iframe)
+            lat, lng = coords_from_apinmo_json(content)
+            if lat is not None and lng is not None:
+                enriched_data["latitud"] = lat
+                enriched_data["longitud"] = lng
+                enriched_data["ubicacion_aproximada"] = True
 
             self.logger.debug(f"✓ Extracted details: {list(enriched_data.keys())}")
             return enriched_data

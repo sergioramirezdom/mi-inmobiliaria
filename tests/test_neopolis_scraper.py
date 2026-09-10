@@ -74,6 +74,16 @@ async def test_scrape_property_details_full_fields():
     assert data["tipo_operacion"] == "venta"
 
 
+@pytest.mark.asyncio
+async def test_scrape_extracts_approximate_coordinates():
+    scraper = NeopolisScraper()
+    data = await _scrape_with_fixture(scraper, "neopolis_detail.html", DETAIL_URL)
+
+    assert data["latitud"] == 36.591416351
+    assert data["longitud"] == -6.237308445
+    assert data["ubicacion_aproximada"] is True
+
+
 # ── year_built guard (mobilia_scraper.py bug must not be repeated) ────────
 
 

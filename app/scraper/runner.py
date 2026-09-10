@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from sqlmodel import Session, select
 
 from db.models import Fuente, Propiedad
-from db.database import PropiedadCRUD
+from db.database import PropiedadCRUD, UbicacionAproximadaCRUD
 from .base import ScraperBase
 from .config import ScraperConfig
 from .exceptions import ScraperException, ValidationException
@@ -101,6 +101,7 @@ class ScraperRunner:
 
                     # Save to database
                     self._save_propiedad(propiedad)
+                    self._flag_ubicacion_aproximada(propiedad, raw_data)
                     self.logger.debug(f"✓ Saved: {propiedad.titulo} ({propiedad.hash_unico[:8]}...)")
                     stats["nuevas"] += 1
 
@@ -359,6 +360,23 @@ class ScraperRunner:
         except Exception as e:
             self.logger.warning(f"Error checking duplicate: {e}")
             return False
+
+    def _flag_ubicacion_aproximada(self, propiedad: Propiedad, raw_data: dict) -> None:
+        """Upsert the approximate-location flag when the scraper reported one.
+
+        Exact locations leave ``app_ubicacion_aproximada`` untouched (absence
+        of a row means exact).
+        """
+        if not raw_data.get("ubicacion_aproximada"):
+            return
+        if propiedad.latitud is None or propiedad.longitud is None:
+            return
+        try:
+            UbicacionAproximadaCRUD.marcar_aproximada(
+                self.db_session, propiedad.id, int(raw_data.get("radio_m") or 300)
+            )
+        except Exception as e:
+            self.logger.warning(f"No se pudo marcar ubicación aproximada: {e}")
 
     def _save_propiedad(self, propiedad: Propiedad) -> None:
         """

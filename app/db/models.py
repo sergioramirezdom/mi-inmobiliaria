@@ -8,7 +8,7 @@ from sqlalchemy import ARRAY
 # Handle Streamlit reloads: Clean up existing tables from metadata
 # so they can be redefined without "already defined" errors
 try:
-    for _t in ('fuente', 'propiedad', 'filtroalerta', 'preciohistorico', 'registroejecucion', 'estadisticanotarial', 'estadisticazonanotarial'):
+    for _t in ('fuente', 'propiedad', 'filtroalerta', 'preciohistorico', 'registroejecucion', 'estadisticanotarial', 'estadisticazonanotarial', 'app_ubicacion_aproximada'):
         if _t in SQLModel.metadata.tables:
             del SQLModel.metadata.tables[_t]
 except Exception:
@@ -105,6 +105,25 @@ class Propiedad(SQLModel, table=True):
     precio_oferta: Optional[float] = None
     intentos_fallidos: Optional[int] = Field(default=0)  # consecutive "no data" sold-check strikes
     created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class UbicacionAproximada(SQLModel, table=True):
+    """Marks that a property's stored lat/lng is an *approximate* point.
+
+    Companion 1:1 to Propiedad (by ``propiedad_id``). Written by scrapers and
+    by the web map tool only when the location is approximate; the absence of
+    a row means the coordinates are exact. The coordinates themselves live on
+    ``Propiedad.latitud`` / ``Propiedad.longitud``. This table is shared with
+    the web app, which owns its lifecycle — scrapers only upsert.
+    """
+
+    __tablename__ = "app_ubicacion_aproximada"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    propiedad_id: int = Field(unique=True, index=True)
+    aproximada: bool = Field(default=True)
+    radio_m: int = Field(default=300)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
 

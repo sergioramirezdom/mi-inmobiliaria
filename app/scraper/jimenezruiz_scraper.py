@@ -11,6 +11,8 @@ from bs4 import BeautifulSoup
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from .config import ScraperConfig
+from .geo_utils import coords_from_cargar_mapa
+from .operacion_detector import detectar_operacion, es_garaje
 from .zona_utils import extract_from_url as _zona_from_url, extract_from_html as _zona_from_html
 
 logger = logging.getLogger(__name__)
@@ -197,6 +199,13 @@ class JimenezRuizScraper:
                 return data
         if es_garaje(titulo=data.get("titulo"), tipo_propiedad=data.get("tipo_propiedad"), url=url):
             data["tipo_propiedad"] = "garaje"
+
+        # Approximate map coordinates (InmoServer JS)
+        lat, lng = coords_from_cargar_mapa(html)
+        if lat is not None and lng is not None:
+            data["latitud"] = lat
+            data["longitud"] = lng
+            data["ubicacion_aproximada"] = True
 
         return data
 

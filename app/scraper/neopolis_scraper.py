@@ -21,6 +21,7 @@ from bs4 import BeautifulSoup
 from .config import ScraperConfig
 from .exceptions import ParsingException
 from .foto_extractor import extraer_fotos
+from .geo_utils import coords_from_apinmo_json
 from .operacion_detector import detectar_operacion, es_garaje
 from .zona_utils import extract_from_html as _zona_from_html
 from .zona_utils import extract_from_url as _zona_from_url
@@ -124,6 +125,13 @@ class NeopolisScraper:
                 url=property_url,
             ):
                 data["tipo_propiedad"] = "garaje"
+
+            # Approximate map coordinates (apinmo record / googleplano iframe)
+            lat, lng = coords_from_apinmo_json(content)
+            if lat is not None and lng is not None:
+                data["latitud"] = lat
+                data["longitud"] = lng
+                data["ubicacion_aproximada"] = True
 
             return data
 

@@ -16,6 +16,7 @@ from db.models import (
     RegistroEjecucion,
     EstadisticaNotarial,
     EstadisticaZonaNotarial,
+    UbicacionAproximada,
 )
 
 logger = logging.getLogger(__name__)
@@ -287,6 +288,38 @@ class PrecioHistoricoCRUD:
             .order_by(PrecioHistorico.fecha.asc())
         )
         return session.exec(stmt).all()
+
+
+class UbicacionAproximadaCRUD:
+    """CRUD for the shared ``app_ubicacion_aproximada`` table.
+
+    Scrapers only ever mark a location as approximate (upsert). Exact
+    locations are represented by the *absence* of a row, so there is no
+    "mark exact" / delete path here — the web map tool owns that.
+    """
+
+    @staticmethod
+    def get_by_propiedad(session: Session, propiedad_id: int) -> Optional[UbicacionAproximada]:
+        stmt = select(UbicacionAproximada).where(
+            UbicacionAproximada.propiedad_id == propiedad_id
+        )
+        return session.exec(stmt).first()
+
+    @staticmethod
+    def marcar_aproximada(
+        session: Session, propiedad_id: int, radio_m: int = 300
+    ) -> UbicacionAproximada:
+        """Insert or update the approximate-location flag for a property."""
+        row = UbicacionAproximadaCRUD.get_by_propiedad(session, propiedad_id)
+        if row is None:
+            row = UbicacionAproximada(propiedad_id=propiedad_id)
+        row.aproximada = True
+        row.radio_m = radio_m
+        row.updated_at = datetime.utcnow()
+        session.add(row)
+        session.commit()
+        session.refresh(row)
+        return row
 
 
 # CRUD Helpers for FiltroAlerta

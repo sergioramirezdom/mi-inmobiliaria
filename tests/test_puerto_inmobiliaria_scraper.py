@@ -34,6 +34,32 @@ async def test_scrape_property_details_does_not_set_fecha_publicacion():
 
 
 @pytest.mark.asyncio
+async def test_scrape_extracts_approximate_coordinates_from_apinmo_blob():
+    html = MINIMAL_FICHA_HTML.replace(
+        "</body>",
+        '<script>var ficha = {"ref":"1355V","latitud":36.576477825,'
+        '"altitud":-6.225324919,"precioinmo":390000};</script></body>',
+    )
+    scraper = PuertoInmobiliariaScraper()
+    scraper.fetch_content = AsyncMock(return_value=(html, DETAIL_URL))
+    data = await scraper.scrape_property_details(DETAIL_URL)
+
+    assert data["latitud"] == 36.576477825
+    assert data["longitud"] == -6.225324919
+    assert data["ubicacion_aproximada"] is True
+
+
+@pytest.mark.asyncio
+async def test_scrape_without_coordinates_leaves_location_unset():
+    scraper = PuertoInmobiliariaScraper()
+    scraper.fetch_content = AsyncMock(return_value=(MINIMAL_FICHA_HTML, DETAIL_URL))
+    data = await scraper.scrape_property_details(DETAIL_URL)
+
+    assert "latitud" not in data
+    assert "ubicacion_aproximada" not in data
+
+
+@pytest.mark.asyncio
 async def test_homepage_redirect_does_not_force_immediate_deactivation():
     """Regression for the 2026-08-26 incident: 12 unrelated listings redirected
     to the homepage in one sold-check run (site rate-limiting/anti-bot), and

@@ -11,6 +11,7 @@ from bs4 import BeautifulSoup
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from .config import ScraperConfig
+from .geo_utils import coords_from_leaflet_circle, coords_from_leaflet_marker
 from .zona_utils import extract_from_url as _zona_from_url, extract_from_html as _zona_from_html
 
 from .foto_extractor import extraer_fotos
@@ -133,6 +134,22 @@ class PuntoHogarScraper:
             fotos = extraer_fotos(html, url=url)
             if fotos:
                 data["fotos"] = fotos
+
+        # Map coordinates. PuntoHogar has two modes:
+        #  * exact  -> L.marker([lat, lng])          (no approximate flag)
+        #  * approx -> L.circle(coords, {radius: N}) (flag + real radius)
+        lat, lng = coords_from_leaflet_marker(html)
+        if lat is not None and lng is not None:
+            data["latitud"] = lat
+            data["longitud"] = lng
+        else:
+            lat, lng, radio_m = coords_from_leaflet_circle(html)
+            if lat is not None and lng is not None:
+                data["latitud"] = lat
+                data["longitud"] = lng
+                data["ubicacion_aproximada"] = True
+                if radio_m:
+                    data["radio_m"] = radio_m
 
         return data
 
