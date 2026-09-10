@@ -3,12 +3,12 @@
 from datetime import datetime
 from typing import Optional, List
 from sqlmodel import SQLModel, Field, Column, String
-from sqlalchemy import ARRAY
+from sqlalchemy import ARRAY, JSON
 
 # Handle Streamlit reloads: Clean up existing tables from metadata
 # so they can be redefined without "already defined" errors
 try:
-    for _t in ('fuente', 'propiedad', 'filtroalerta', 'preciohistorico', 'registroejecucion', 'estadisticanotarial', 'estadisticazonanotarial', 'app_ubicacion_aproximada'):
+    for _t in ('fuente', 'propiedad', 'filtroalerta', 'preciohistorico', 'registroejecucion', 'estadisticanotarial', 'estadisticazonanotarial', 'app_ubicacion_aproximada', 'app_zona_poligono'):
         if _t in SQLModel.metadata.tables:
             del SQLModel.metadata.tables[_t]
 except Exception:
@@ -79,6 +79,13 @@ class Propiedad(SQLModel, table=True):
     barrio: Optional[str] = Field(default=None, index=True)
     zona_normalizada: Optional[str] = Field(default=None, index=True)  # zona canónica del catálogo
     zona_confianza: Optional[str] = None  # 'exacta' | 'via' | 'debil'
+    # Zona resolved geometrically from lat/lng against a user-drawn polygon
+    # (app_zona_poligono). Normalized source of truth for map grouping,
+    # independent of the unreliable per-portal `barrio` text. NULL when the
+    # property has no coordinates or falls outside every polygon.
+    zona_poligono_id: Optional[int] = Field(
+        default=None, foreign_key="app_zona_poligono.id", index=True
+    )
     distrito: Optional[str] = Field(default=None, index=True)
     municipio: Optional[str] = Field(default=None, index=True)
     provincia: Optional[str] = None
@@ -124,6 +131,31 @@ class UbicacionAproximada(SQLModel, table=True):
     propiedad_id: int = Field(unique=True, index=True)
     aproximada: bool = Field(default=True)
     radio_m: int = Field(default=300)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class ZonaPoligono(SQLModel, table=True):
+    """User-drawn named polygon used to group properties on the map.
+
+    Created and edited by the web app's map drawing tool. The backend only
+    reads it, to resolve ``Propiedad.zona_poligono_id`` from a property's
+    lat/lng. This replaces the unreliable per-portal ``barrio`` /
+    ``zona_normalizada`` text with one normalized, geometry-based zona.
+
+    ``geometria`` is a GeoJSON Polygon:
+    ``{"type": "Polygon", "coordinates": [[[lng, lat], ...]]}`` — the first
+    ring is the outer boundary, any further rings are holes. Coordinates are
+    WGS84 lon/lat, matching what Leaflet.draw emits.
+    """
+
+    __tablename__ = "app_zona_poligono"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    nombre: str = Field(index=True, unique=True)
+    geometria: dict = Field(sa_column=Column(JSON, nullable=False))
+    color: Optional[str] = None  # optional hex colour for map rendering
+    activo: bool = Field(default=True, index=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
 
