@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from sqlmodel import Session, select
 
 from db.models import Fuente, Propiedad
-from db.database import PropiedadCRUD, UbicacionAproximadaCRUD
+from db.database import PropiedadCRUD, UbicacionAproximadaCRUD, ZonaPoligonoCRUD
 from .base import ScraperBase
 from .config import ScraperConfig
 from .exceptions import ScraperException, ValidationException
@@ -36,6 +36,7 @@ class ScraperRunner:
         self.db_session = db_session
         self.config = config or ScraperConfig()
         self.logger = logging.getLogger(__name__)
+        self._zona_poligonos = None  # lazy cache, loaded once per run
 
     async def run_scraper(self, fuente: Fuente) -> dict:
         """
@@ -102,6 +103,7 @@ class ScraperRunner:
                     # Save to database
                     self._save_propiedad(propiedad)
                     self._flag_ubicacion_aproximada(propiedad, raw_data)
+                    self._resolver_zona_poligono(propiedad)
                     self.logger.debug(f"✓ Saved: {propiedad.titulo} ({propiedad.hash_unico[:8]}...)")
                     stats["nuevas"] += 1
 
@@ -377,6 +379,23 @@ class ScraperRunner:
             )
         except Exception as e:
             self.logger.warning(f"No se pudo marcar ubicación aproximada: {e}")
+
+    def _resolver_zona_poligono(self, propiedad: Propiedad) -> None:
+        """Set ``propiedad.zona_poligono_id`` from its lat/lng, if it has coords."""
+        if propiedad.latitud is None or propiedad.longitud is None:
+            return
+        try:
+            if self._zona_poligonos is None:
+                self._zona_poligonos = ZonaPoligonoCRUD.listar(self.db_session)
+            zona_id = ZonaPoligonoCRUD.resolver_id(
+                propiedad.latitud, propiedad.longitud, self._zona_poligonos
+            )
+            if zona_id != propiedad.zona_poligono_id:
+                propiedad.zona_poligono_id = zona_id
+                self.db_session.add(propiedad)
+                self.db_session.commit()
+        except Exception as e:
+            self.logger.warning(f"No se pudo resolver zona-polígono: {e}")
 
     def _save_propiedad(self, propiedad: Propiedad) -> None:
         """

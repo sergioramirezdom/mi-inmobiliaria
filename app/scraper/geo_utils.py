@@ -95,6 +95,52 @@ def coords_from_leaflet_marker(html: str) -> Coords:
     return _pair(m.group(1), m.group(2)) if m else _EMPTY
 
 
+def _point_in_ring(lng: float, lat: float, ring: list) -> bool:
+    """Ray-casting test: is (lng, lat) inside this closed ring of [lng, lat] pairs?"""
+    inside = False
+    n = len(ring)
+    if n < 3:
+        return False
+    j = n - 1
+    for i in range(n):
+        xi, yi = ring[i][0], ring[i][1]
+        xj, yj = ring[j][0], ring[j][1]
+        if (yi > lat) != (yj > lat):
+            x_cross = (xj - xi) * (lat - yi) / (yj - yi) + xi
+            if lng < x_cross:
+                inside = not inside
+        j = i
+    return inside
+
+
+def _rings_contain(lng: float, lat: float, rings: list) -> bool:
+    """Inside the outer ring (rings[0]) and outside every hole (rings[1:])."""
+    if not rings or not _point_in_ring(lng, lat, rings[0]):
+        return False
+    return not any(_point_in_ring(lng, lat, hole) for hole in rings[1:])
+
+
+def point_in_polygon(lat: float, lng: float, geometry: Optional[dict]) -> bool:
+    """True if (lat, lng) lies inside a GeoJSON Polygon or MultiPolygon.
+
+    ``geometry`` is the GeoJSON geometry object (``{"type": ..., "coordinates": ...}``)
+    with WGS84 lon/lat coordinates. Holes are respected. Any other geometry
+    type, or a missing/malformed geometry, returns ``False``.
+    """
+    if not geometry or lat is None or lng is None:
+        return False
+    gtype = geometry.get("type")
+    coords = geometry.get("coordinates") or []
+    try:
+        if gtype == "Polygon":
+            return _rings_contain(lng, lat, coords)
+        if gtype == "MultiPolygon":
+            return any(_rings_contain(lng, lat, poly) for poly in coords)
+    except (TypeError, IndexError, ValueError, ZeroDivisionError):
+        return False
+    return False
+
+
 def coords_from_leaflet_circle(
     html: str,
 ) -> Tuple[Optional[float], Optional[float], Optional[int]]:

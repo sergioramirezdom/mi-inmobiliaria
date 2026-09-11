@@ -10,7 +10,22 @@ from scraper.geo_utils import (
     coords_from_gmaps_center,
     coords_from_leaflet_circle,
     coords_from_leaflet_marker,
+    point_in_polygon,
 )
+
+# A ~small square around central El Puerto de Santa María, GeoJSON lon/lat order.
+_SQUARE = {
+    "type": "Polygon",
+    "coordinates": [
+        [
+            [-6.240, 36.590],
+            [-6.220, 36.590],
+            [-6.220, 36.605],
+            [-6.240, 36.605],
+            [-6.240, 36.590],
+        ]
+    ],
+}
 
 
 # ── coords_from_cargar_mapa (InmoServer: UriaHomes, Alonsaga) ────────────────
@@ -116,3 +131,45 @@ def test_out_of_range_values_rejected():
 def test_zeroed_coords_rejected():
     html = "center: {lat: 0, lng: 0}"
     assert coords_from_gmaps_center(html) == (None, None)
+
+
+# ── point_in_polygon ───────────────────────────────────────────────────────
+
+
+def test_point_inside_polygon():
+    assert point_in_polygon(36.598, -6.230, _SQUARE) is True
+
+
+def test_point_outside_polygon():
+    assert point_in_polygon(36.610, -6.230, _SQUARE) is False
+
+
+def test_point_in_polygon_respects_holes():
+    donut = {
+        "type": "Polygon",
+        "coordinates": [
+            _SQUARE["coordinates"][0],
+            [
+                [-6.233, 36.596],
+                [-6.227, 36.596],
+                [-6.227, 36.600],
+                [-6.233, 36.600],
+                [-6.233, 36.596],
+            ],
+        ],
+    }
+    assert point_in_polygon(36.598, -6.230, donut) is False  # in the hole
+    assert point_in_polygon(36.592, -6.238, donut) is True  # in the ring, outside hole
+
+
+def test_point_in_multipolygon():
+    multi = {"type": "MultiPolygon", "coordinates": [_SQUARE["coordinates"]]}
+    assert point_in_polygon(36.598, -6.230, multi) is True
+    assert point_in_polygon(36.700, -6.100, multi) is False
+
+
+def test_point_in_polygon_handles_bad_input():
+    assert point_in_polygon(36.598, -6.230, None) is False
+    assert point_in_polygon(None, None, _SQUARE) is False
+    assert point_in_polygon(36.598, -6.230, {"type": "Point", "coordinates": [-6.23, 36.598]}) is False
+    assert point_in_polygon(36.598, -6.230, {"type": "Polygon", "coordinates": []}) is False

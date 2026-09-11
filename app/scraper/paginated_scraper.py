@@ -20,7 +20,7 @@ from .zona_normalizer import CatalogoInvalidoError
 from .check_outcome import CheckOutcome, classify_check_outcome, apply_check_outcome
 from .price_drop import build_price_drop_entry
 from db.models import Fuente, Propiedad, PrecioHistorico
-from db.database import UbicacionAproximadaCRUD
+from db.database import UbicacionAproximadaCRUD, ZonaPoligonoCRUD
 
 
 class PaginatedScraper:
@@ -33,6 +33,24 @@ class PaginatedScraper:
         self.logger = logging.getLogger(__name__)
         self.generic_scraper = GenericScraper(config)
         self.detail_scraper = PuertoInmobiliariaScraper(config)
+        self._zona_poligonos = None  # lazy cache, loaded once per run
+
+    def _resolver_zona_poligono(self, propiedad) -> None:
+        """Set ``propiedad.zona_poligono_id`` from its lat/lng, if it has coords."""
+        if propiedad.latitud is None or propiedad.longitud is None:
+            return
+        try:
+            if self._zona_poligonos is None:
+                self._zona_poligonos = ZonaPoligonoCRUD.listar(self.db_session)
+            zona_id = ZonaPoligonoCRUD.resolver_id(
+                propiedad.latitud, propiedad.longitud, self._zona_poligonos
+            )
+            if zona_id != propiedad.zona_poligono_id:
+                propiedad.zona_poligono_id = zona_id
+                self.db_session.add(propiedad)
+                self.db_session.commit()
+        except Exception as e:
+            self.logger.warning(f"No se pudo resolver zona-polígono: {e}")
 
     async def scrape_all_pages(
         self,
@@ -340,6 +358,9 @@ class PaginatedScraper:
                                 )
                             except Exception as e:
                                 self.logger.warning(f"No se pudo marcar ubicación aproximada: {e}")
+
+                        # Resolve the normalized map zona from the coordinates
+                        self._resolver_zona_poligono(propiedad)
 
                         self.logger.debug(f"✓ Saved new property: {propiedad.titulo}")
                         stats["nuevas"] += 1

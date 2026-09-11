@@ -17,7 +17,9 @@ from db.models import (
     EstadisticaNotarial,
     EstadisticaZonaNotarial,
     UbicacionAproximada,
+    ZonaPoligono,
 )
+from scraper.geo_utils import point_in_polygon
 
 logger = logging.getLogger(__name__)
 
@@ -320,6 +322,56 @@ class UbicacionAproximadaCRUD:
         session.commit()
         session.refresh(row)
         return row
+
+
+class ZonaPoligonoCRUD:
+    """Read helpers for the shared ``app_zona_poligono`` table plus the
+    point-in-polygon resolver used to set ``Propiedad.zona_poligono_id``.
+
+    Writes (draw / rename / delete a polygon) are owned by the web app; only
+    ``crear`` is exposed here for scripts and tests.
+    """
+
+    @staticmethod
+    def listar(session: Session, solo_activos: bool = True) -> List[ZonaPoligono]:
+        stmt = select(ZonaPoligono)
+        if solo_activos:
+            stmt = stmt.where(ZonaPoligono.activo == True)  # noqa: E712
+        stmt = stmt.order_by(ZonaPoligono.nombre)
+        return list(session.exec(stmt).all())
+
+    @staticmethod
+    def get(session: Session, zona_id: int) -> Optional[ZonaPoligono]:
+        return session.get(ZonaPoligono, zona_id)
+
+    @staticmethod
+    def crear(
+        session: Session, nombre: str, geometria: dict, color: Optional[str] = None
+    ) -> ZonaPoligono:
+        zona = ZonaPoligono(nombre=nombre, geometria=geometria, color=color)
+        session.add(zona)
+        session.commit()
+        session.refresh(zona)
+        return zona
+
+    @staticmethod
+    def resolver_id(
+        lat: Optional[float],
+        lng: Optional[float],
+        poligonos: List[ZonaPoligono],
+    ) -> Optional[int]:
+        """Return the id of the first active polygon that contains (lat, lng).
+
+        ``poligonos`` is passed in (typically from :meth:`listar`) so a caller
+        iterating many properties loads the polygons once. Returns ``None``
+        when the point is missing or falls outside every polygon.
+        """
+        if lat is None or lng is None:
+            return None
+        for zona in poligonos:
+            if point_in_polygon(lat, lng, zona.geometria):
+                return zona.id
+        return None
 
 
 # CRUD Helpers for FiltroAlerta
