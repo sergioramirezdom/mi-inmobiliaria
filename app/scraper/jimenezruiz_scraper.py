@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from .config import ScraperConfig
 from .geo_utils import coords_from_cargar_mapa
 from .operacion_detector import detectar_operacion, es_garaje
+from .estado_venta import detect_estado_venta
 from .zona_utils import extract_from_url as _zona_from_url, extract_from_html as _zona_from_html
 
 logger = logging.getLogger(__name__)
@@ -92,13 +93,14 @@ class JimenezRuizScraper:
         soup = BeautifulSoup(html, "html.parser")
         page_text = soup.get_text(" ", strip=True)
 
-        # Sold detection (check only in the first ~3000 chars of text)
         lower_text = page_text.lower()
-        for keyword in ("vendido", "vendida", "reservado", "reservada"):
-            if keyword in lower_text[:3000]:
-                data["activa"] = False
-                data["estado"] = keyword.capitalize()
-                return data
+
+        # Sold detection (status badge / title only, see estado_venta)
+        estado = detect_estado_venta(soup)
+        if estado:
+            data["activa"] = False
+            data["estado"] = estado
+            return data
 
         # Price: find first reasonable price not from "similar properties" section
         similar_prices: set = set()

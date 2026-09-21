@@ -15,6 +15,7 @@ from .zona_utils import extract_from_url as _zona_from_url, extract_from_html as
 
 from .foto_extractor import extraer_fotos
 from .operacion_detector import detectar_operacion, es_garaje
+from .estado_venta import detect_estado_venta
 
 logger = logging.getLogger(__name__)
 
@@ -65,13 +66,12 @@ class GuadaleteScraper:
         soup = BeautifulSoup(html, "lxml")
         page_text = soup.get_text(" ", strip=True)
 
-        # Sold detection
-        lower_text = page_text.lower()
-        for keyword in ("vendido", "vendida", "reservado", "reservada", "alquilado"):
-            if keyword in lower_text:
-                data["activa"] = False
-                data["estado"] = keyword.capitalize()
-                return data
+        # Sold detection (status badge / title only, see estado_venta)
+        estado = detect_estado_venta(soup, include_rented=True)
+        if estado:
+            data["activa"] = False
+            data["estado"] = estado
+            return data
 
         # Title: strip "IG1234 - " prefix
         h1 = soup.find("h1")
@@ -121,6 +121,13 @@ class GuadaleteScraper:
             }
             data["tipo_propiedad"] = tipo_map.get(url_match.group(1), url_match.group(1))
 
+        # Description (extracted first: the operation detector reads it)
+        for tag in soup.find_all(["div", "section", "p"]):
+            text = tag.get_text(strip=True)
+            if len(text) > 150 and not tag.find_all(["div", "section"]):
+                data.setdefault("descripcion", text[:2000])
+                break
+
         # Detect operation type and garaje
         operacion = detectar_operacion(
             titulo=data.get("titulo"), precio=data.get("precio"), url=url,
@@ -134,13 +141,6 @@ class GuadaleteScraper:
                 return data
         if es_garaje(titulo=data.get("titulo"), tipo_propiedad=data.get("tipo_propiedad"), url=url):
             data["tipo_propiedad"] = "garaje"
-
-        # Description
-        for tag in soup.find_all(["div", "section", "p"]):
-            text = tag.get_text(strip=True)
-            if len(text) > 150 and not tag.find_all(["div", "section"]):
-                data.setdefault("descripcion", text[:2000])
-                break
 
         if not data.get("barrio"):
             data["barrio"] = _zona_from_url(url) or _zona_from_html(page_text, soup)

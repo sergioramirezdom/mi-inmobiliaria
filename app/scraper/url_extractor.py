@@ -12,6 +12,7 @@ from .zona_utils import (
 )
 
 from .foto_extractor import extraer_fotos
+from .estado_venta import detect_estado_en_texto, detect_estado_venta
 
 logger = logging.getLogger(__name__)
 
@@ -20,10 +21,6 @@ BROWSER_HEADERS = {
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     "Accept-Language": "es-ES,es;q=0.9",
 }
-
-_SOLD_KEYWORDS = ("vendido", "vendida", "reservado", "reservada")
-# Phrases that contain sold keywords but are NOT indicators of sold status
-_SOLD_KEYWORD_EXCLUSIONS = ("derechos reservados", "reservados todos", "todos los derechos")
 
 
 async def extract_from_url(url: str) -> dict:
@@ -50,18 +47,13 @@ def _parse_html(html: str, url: str = "") -> dict:
     """Parse HTML and extract property fields. Pure function — no HTTP calls."""
     soup = BeautifulSoup(html, "html.parser")
     page_text = soup.get_text(" ", strip=True)
-    lower_text = page_text.lower()
     data: dict = {}
 
-    # Sold detection — check first 3000 chars, excluding copyright/legal phrases
-    check_text = lower_text[:3000]
-    for keyword in _SOLD_KEYWORDS:
-        idx = check_text.find(keyword)
-        while idx >= 0:
-            context = check_text[max(0, idx - 20):idx + len(keyword) + 10]
-            if not any(excl in context for excl in _SOLD_KEYWORD_EXCLUSIONS):
-                return {"activa": False, "estado": keyword.capitalize()}
-            idx = check_text.find(keyword, idx + 1)
+    # Sold detection — status badge/title first, then a status phrase in the
+    # first 3000 chars (unknown markup); never a bare keyword (see estado_venta)
+    estado = detect_estado_venta(soup) or detect_estado_en_texto(page_text[:3000])
+    if estado:
+        return {"activa": False, "estado": estado}
 
     # Price — meta tags first, then regex in page text
     for meta_name in ("og:price:amount", "product:price:amount", "price"):

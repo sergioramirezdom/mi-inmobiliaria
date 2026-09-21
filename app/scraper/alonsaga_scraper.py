@@ -14,6 +14,7 @@ from .config import ScraperConfig
 from .geo_utils import coords_from_cargar_mapa
 from .zona_utils import extract_from_url as _zona_from_url, extract_from_html as _zona_from_html
 from .operacion_detector import detectar_operacion, es_garaje
+from .estado_venta import detect_estado_venta
 
 logger = logging.getLogger(__name__)
 
@@ -57,14 +58,13 @@ class AlonsagaScraper:
 
         soup = BeautifulSoup(html, "lxml")
         page_text = soup.get_text(" ", strip=True)
-        lower_text = page_text.lower()
 
-        # Sold detection
-        for keyword in ("vendido", "vendida", "reservado", "reservada"):
-            if keyword in lower_text:
-                data["activa"] = False
-                data["estado"] = keyword.capitalize()
-                return data
+        # Sold detection (status badge / title only, see estado_venta)
+        estado = detect_estado_venta(soup)
+        if estado:
+            data["activa"] = False
+            data["estado"] = estado
+            return data
 
         # Title: h1 text as-is (the old "Alonsaga X - " prefix no longer appears)
         h1 = soup.find("h1")
@@ -75,6 +75,12 @@ class AlonsagaScraper:
         price_match = re.search(r"([\d.]+(?:,\d+)?)\s*€", page_text)
         if price_match:
             data["precio"] = _parse_price_eu(price_match.group(1))
+
+        # Description: alonsaga puts the full text in p#inmueble2_datos_adicionales
+        # (extracted before detection: the operation detector reads it)
+        desc = _extract_descripcion(soup)
+        if desc:
+            data["descripcion"] = desc
 
         # Detect operation type and garaje (common function)
         operacion = detectar_operacion(
@@ -117,11 +123,6 @@ class AlonsagaScraper:
             fotos = _extract_fotos(soup, property_id)
             if fotos:
                 data["fotos"] = fotos
-
-        # Description: alonsaga puts the full text in p#inmueble2_datos_adicionales
-        desc = _extract_descripcion(soup)
-        if desc:
-            data["descripcion"] = desc
 
         # Zona fallback: URL first, then HTML
         if not data.get("barrio"):

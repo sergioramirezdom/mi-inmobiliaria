@@ -35,6 +35,7 @@ from bs4 import BeautifulSoup
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from .config import ScraperConfig
 from .geo_utils import coords_from_cargar_mapa
+from .estado_venta import detect_estado_venta
 from .zona_utils import extract_from_url as _zona_from_url, extract_from_html as _zona_from_html
 
 logger = logging.getLogger(__name__)
@@ -66,10 +67,6 @@ TIPO_MAP = {
     "ático": "ático",
     "adosado": "adosado",
 }
-
-# Keywords that indicate a property is sold/reserved/rented on this site
-# (checked against the lowercased page text).
-_SOLD_KEYWORDS = ("vendido", "vendida", "reservado", "reservada", "alquilado", "alquilada")
 
 # CSS selector fragments matching both InmoServer id skins (tular → 1, samper → 2).
 _SEL_TITULO2 = "#inmueble1_titulo2, #inmueble2_titulo2"
@@ -121,14 +118,13 @@ class TularScraper:
 
         soup = BeautifulSoup(html, "lxml")
         page_text = soup.get_text(" ", strip=True)
-        lower_text = page_text.lower()
 
-        # Sold/reserved/rented detection
-        for keyword in _SOLD_KEYWORDS:
-            if keyword in lower_text:
-                data["activa"] = False
-                data["estado"] = keyword.capitalize()
-                return data
+        # Sold/reserved/rented detection (status badge / title only, see estado_venta)
+        estado = detect_estado_venta(soup, include_rented=True)
+        if estado:
+            data["activa"] = False
+            data["estado"] = estado
+            return data
 
         # Title / tipo: #inmueble1_titulo2 (h4) → "Piso en venta"
         h4 = soup.select_one(_SEL_TITULO2)

@@ -106,12 +106,13 @@ class NeopolisScraper:
             if fotos:
                 data["fotos"] = fotos
 
-            operacion = detectar_operacion(
+            # The site's explicit "Tipo operación" label outranks the heuristics.
+            operacion = data.get("tipo_operacion") or detectar_operacion(
                 titulo=data.get("titulo"),
                 precio=data.get("precio"),
                 url=property_url,
                 descripcion=data.get("descripcion"),
-            ) or data.get("tipo_operacion")
+            )
             if operacion:
                 data["tipo_operacion"] = operacion
                 if operacion == "alquiler":

@@ -92,6 +92,24 @@ def test_parse_html_sold_keyword_reservado():
     assert data["activa"] is False
 
 
+def test_parse_html_footer_and_garage_reservada_are_not_sold():
+    html = '''<html><body><h1>Piso en El Puerto</h1>
+        <p>Incluye plaza de garaje reservada. Zona reservada para vecinos.</p>
+        <p>Precio: 195.000 €</p>
+        <footer>Todos los derechos reservados</footer></body></html>'''
+    data = _parse_html(html)
+    assert "activa" not in data
+    assert data["precio"] == 195000.0
+
+
+def test_parse_html_sold_ribbon_is_sold():
+    html = '''<html><body><div class="ribbon">Vendido</div>
+        <h1>Piso en El Puerto</h1></body></html>'''
+    data = _parse_html(html)
+    assert data["activa"] is False
+    assert data["estado"] == "Vendido"
+
+
 def test_parse_html_surface_over_2000_ignored():
     html = '''<html><body><p>Finca de 5000 m², 3 habitaciones</p></body></html>'''
     data = _parse_html(html)
