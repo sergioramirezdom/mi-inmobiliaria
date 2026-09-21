@@ -9,6 +9,7 @@ from .exceptions import ParsingException
 from .config import ScraperConfig
 from .zona_utils import extract_from_url as _zona_from_url, extract_from_html as _zona_from_html
 from .foto_extractor import extraer_fotos
+from .number_parsing import parse_eu_number
 from .operacion_detector import detectar_operacion, es_garaje
 import httpx
 
@@ -170,26 +171,7 @@ class MobiliaScraper:
             raise ParsingException(f"Failed to extract property details: {e}")
 
     def _parse_float(self, value: Any) -> Optional[float]:
-        if value is None or value == "":
-            return None
-        if isinstance(value, (int, float)):
-            return float(value)
-        if isinstance(value, str):
-            try:
-                cleaned = re.sub(r"[€$m²m2]", "", value).strip()
-                if "," in cleaned and "." in cleaned:
-                    if cleaned.rindex(",") > cleaned.rindex("."):
-                        cleaned = cleaned.replace(".", "").replace(",", ".")
-                    else:
-                        cleaned = cleaned.replace(",", "")
-                elif "." in cleaned and len(cleaned.split(".")[-1]) == 3:
-                    cleaned = cleaned.replace(".", "")
-                elif "," in cleaned:
-                    cleaned = cleaned.replace(",", ".")
-                return float(cleaned) if cleaned else None
-            except ValueError:
-                return None
-        return None
+        return parse_eu_number(value)
 
     def _parse_int(self, value: Any) -> Optional[int]:
         if value is None or value == "":

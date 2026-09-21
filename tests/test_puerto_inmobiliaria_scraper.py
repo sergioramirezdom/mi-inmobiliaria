@@ -4,9 +4,11 @@ publication date; a scrape-time value would defeat the listing-date
 resolver (app/listing_date.py)."""
 import os
 import sys
+from pathlib import Path
 from unittest.mock import AsyncMock
 
 import pytest
+from bs4 import BeautifulSoup
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "app"))
 
@@ -91,3 +93,91 @@ async def test_page_without_ficha_markers_does_not_force_immediate_deactivation(
     assert "activa" not in data
     assert not data.get("titulo")
     assert not data.get("precio")
+
+
+FICHA_FIXTURE = Path(__file__).parent / "fixtures" / "puerto_inmobiliaria_ficha.html"
+
+
+def _characteristics(html: str) -> dict:
+    scraper = PuertoInmobiliariaScraper()
+    return scraper._extract_characteristics(BeautifulSoup(html, "html.parser"))
+
+
+def _old_structure(*rows: tuple) -> str:
+    items = "".join(
+        f'<li><span class="caracteristica">{label}</span><span class="valor">{valor}</span></li>'
+        for label, valor in rows
+    )
+    return f'<ul class="fichapropiedad-listadatos">{items}</ul>'
+
+
+def test_characteristics_fixture_keeps_built_and_useful_area_apart():
+    ch = _characteristics(FICHA_FIXTURE.read_text(encoding="utf-8"))
+
+    assert ch["superficie_m2"] == 90.0
+    assert ch["superficie_util_m2"] == 75.0
+    assert ch["habitaciones"] == 3
+    assert ch["banos"] == 2
+    assert ch["estado"] == "Buen estado"
+    assert ch["precio_comunidad"] == 45.0
+
+
+def test_plot_area_does_not_overwrite_built_area():
+    html = _old_structure(
+        ("Superficie construida", "90 m²"),
+        ("Superficie parcela", "300 m²"),
+    )
+    ch = _characteristics(html)
+
+    assert ch["superficie_m2"] == 90.0
+    assert "superficie_util_m2" not in ch
+
+
+def test_useful_area_row_never_lands_in_built_area():
+    ch = _characteristics(_old_structure(("Superficie útil", "75 m²")))
+
+    assert ch["superficie_util_m2"] == 75.0
+    assert "superficie_m2" not in ch
+
+
+def test_english_labels_map_to_the_same_fields():
+    html = _old_structure(("Built Surface", "90 m²"), ("Net Internal Area", "75 m²"))
+    ch = _characteristics(html)
+
+    assert ch["superficie_m2"] == 90.0
+    assert ch["superficie_util_m2"] == 75.0
+
+
+def test_bare_superficie_is_a_fallback_only_when_no_built_area():
+    only_generic = _characteristics(_old_structure(("Superficie", "88 m²")))
+    with_built = _characteristics(
+        _old_structure(("Superficie", "88 m²"), ("Superficie construida", "90 m²"))
+    )
+
+    assert only_generic["superficie_m2"] == 88.0
+    assert with_built["superficie_m2"] == 90.0
+
+
+def test_price_per_m2_row_is_not_an_area():
+    ch = _characteristics(_old_structure(("Precio m²", "1.294 €"), ("Habitaciones", "2")))
+
+    assert "superficie_m2" not in ch
+
+
+def test_area_with_thousands_separator_is_parsed():
+    ch = _characteristics(_old_structure(("Superficie parcela", "1.200 m²"), ("Superficie construida", "1.200 m²")))
+
+    assert ch["superficie_m2"] == 1200.0
+
+
+@pytest.mark.asyncio
+async def test_scrape_property_details_returns_both_areas_from_fixture():
+    scraper = PuertoInmobiliariaScraper()
+    scraper.fetch_content = AsyncMock(
+        return_value=(FICHA_FIXTURE.read_text(encoding="utf-8"), DETAIL_URL)
+    )
+    data = await scraper.scrape_property_details(DETAIL_URL)
+
+    assert data["precio"] == 116500.0
+    assert data["superficie_m2"] == 90.0
+    assert data["superficie_util_m2"] == 75.0

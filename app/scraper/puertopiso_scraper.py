@@ -15,6 +15,7 @@ from .geo_utils import coords_from_gmaps_center
 from .zona_utils import extract_from_url as _zona_from_url, extract_from_html as _zona_from_html
 from .operacion_detector import detectar_operacion, es_garaje
 from .estado_venta import detect_estado_venta
+from .number_parsing import parse_eu_number
 
 logger = logging.getLogger(__name__)
 
@@ -106,11 +107,14 @@ class PuertoPisoScraper:
             h4s = uno.find_all("h4")
             if h4s:
                 data["titulo"] = h4s[0].get_text(strip=True)
-            if len(h4s) >= 2:
-                price_text = h4s[1].get_text(strip=True)
-                m = re.search(r"([\d.,]+)€", price_text.replace(" ", ""))
-                if m:
-                    data["precio"] = _parse_price_eu(m.group(1))
+            # Price: first h4 after the title showing an amount (\s also
+            # strips non-breaking spaces before the euro sign)
+            for h4 in h4s[1:]:
+                m = re.search(r"(\d[\d.,]*)€", re.sub(r"\s+", "", h4.get_text()))
+                precio = parse_eu_number(m.group(1)) if m else None
+                if precio is not None:
+                    data["precio"] = precio
+                    break
 
         # If title not found in div.uno, try fallback
         if "titulo" not in data:
@@ -119,11 +123,16 @@ class PuertoPisoScraper:
                 data["titulo"] = h1.get_text(strip=True)
 
         # Surface, rooms, bathrooms, type, zone — from page text
-        m = re.search(r"Superficie [ÚU]til[:\s]+([\d.,]+)\s*m2", page_text, re.IGNORECASE)
-        if not m:
-            m = re.search(r"Superficie[:\s]+([\d.,]+)\s*m2", page_text, re.IGNORECASE)
-        if m:
-            data["superficie_m2"] = _parse_float_eu(m.group(1))
+        # Built area goes to superficie_m2 (as in every other scraper); the
+        # useful area is kept apart and never stands in for it.
+        m = re.search(r"Superficie[:\s]+(\d[\d.,]*)\s*m[²2]", page_text, re.IGNORECASE)
+        superficie = parse_eu_number(m.group(1)) if m else None
+        if superficie is not None:
+            data["superficie_m2"] = superficie
+        m = re.search(r"Superficie [ÚU]til[:\s]+(\d[\d.,]*)\s*m[²2]", page_text, re.IGNORECASE)
+        superficie_util = parse_eu_number(m.group(1)) if m else None
+        if superficie_util is not None:
+            data["superficie_util_m2"] = superficie_util
 
         m = re.search(r"Habitaciones[:\s]+(\d+)", page_text, re.IGNORECASE)
         if m:
@@ -153,18 +162,33 @@ class PuertoPisoScraper:
             "piscina": "piscina",
             "aire acondicionado": "aire_acondicionado",
         }
+        # Scoped to the attributes column when present, so related-listing
+        # widgets elsewhere on the page cannot set flags.
+        col_attr = soup.find("div", class_="column_attr")
+        amenity_text = col_attr.get_text(" ", strip=True).lower() if col_attr else lower_text
+        affirmed: set = set()
+        negated: set = set()
         for keyword, field in amenity_map.items():
-            if keyword in lower_text and field not in data:
+            mention = _amenity_mention(amenity_text, keyword)
+            if mention is True:
+                affirmed.add(field)
+            elif mention is False:
+                negated.add(field)
+        for field in affirmed - negated:
+            if field not in data:
                 data[field] = True
 
         # Description: first justified paragraph with enough text
-        col_attr = soup.find("div", class_="column_attr")
+        # (fallback: first long paragraph when no justified one exists)
         if col_attr:
-            for p in col_attr.find_all("p"):
-                style = p.get("style", "")
-                text = p.get_text(strip=True)
-                if "justify" in style and len(text) > 80:
-                    data["descripcion"] = text[:2000]
+            paragraphs = col_attr.find_all("p")
+            for require_justify in (True, False):
+                for p in paragraphs:
+                    text = p.get_text(strip=True)
+                    if len(text) > 80 and (not require_justify or "justify" in p.get("style", "")):
+                        data["descripcion"] = text[:2000]
+                        break
+                if "descripcion" in data:
                     break
 
         # Images: from div.fotorama anchor hrefs
@@ -230,24 +254,16 @@ def _fix_url(url: str) -> str:
     return url
 
 
-def _parse_price_eu(text: str) -> Optional[float]:
-    """Parse European price string: '155.000' → 155000.0"""
-    text = text.strip().replace(".", "").replace(",", ".")
-    try:
-        return float(text)
-    except (ValueError, TypeError):
-        return None
+# "sin ascensor", "sin plaza de garaje", "no dispone de ascensor"...
+_NEGATION_BEFORE = re.compile(r"(?:\bsin|\bno\s+(?:tiene|dispone\s+de|hay|cuenta\s+con))\s+(?:\w+\s+){0,2}$")
 
 
-def _parse_float_eu(text: str) -> Optional[float]:
-    """Parse European decimal: '69,84' or '69.84' → 69.84"""
-    text = text.strip()
-    # If both . and , present, the . is thousand separator
-    if "." in text and "," in text:
-        text = text.replace(".", "").replace(",", ".")
-    elif "," in text:
-        text = text.replace(",", ".")
-    try:
-        return float(text)
-    except (ValueError, TypeError):
-        return None
+def _amenity_mention(text: str, keyword: str) -> Optional[bool]:
+    """True if `keyword` is mentioned affirmatively, False if any mention is
+    negated ("sin ascensor"), None if it does not appear. Text is lowercase."""
+    found = False
+    for m in re.finditer(rf"\b{re.escape(keyword)}", text):
+        if _NEGATION_BEFORE.search(text[max(0, m.start() - 40):m.start()]):
+            return False
+        found = True
+    return True if found else None

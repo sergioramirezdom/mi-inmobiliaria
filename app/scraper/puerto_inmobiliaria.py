@@ -238,29 +238,28 @@ class PuertoInmobiliariaScraper:
             return description if description else None
         return None
 
+    # Area rows are matched on the whole normalised label: substring matching
+    # made "Superficie útil" and "Superficie parcela" hit the generic
+    # "Superficie" label and overwrite the built area.
+    _AREA_LABELS = {
+        "built surface": "superficie_m2",
+        "superficie construida": "superficie_m2",
+        "net internal area": "superficie_util_m2",
+        "superficie útil": "superficie_util_m2",
+        "superficie util": "superficie_util_m2",
+    }
+    # Bare "Superficie" is only trusted as the built area when no explicit
+    # built-area row exists.
+    _GENERIC_AREA_LABEL = "superficie"
+
     def _extract_characteristics(self, soup: BeautifulSoup) -> dict:
         """
         Extract characteristics from the property features list.
 
         Returns dict with extracted characteristics mapped to standard field names.
         """
-        characteristics = {}
-
-        # Map of Puerto Inmobiliaria characteristic names to our field names
-        field_mapping = {
-            "habitaciones": ["Bedrooms", "Dormitorios", "Habitaciones"],
-            "banos": ["Bathrooms", "Baños"],
-            "superficie_m2": ["Built Surface", "Superficie construida", "Superficie", "m²"],
-            "superficie_util_m2": ["Net Internal Area", "Superficie útil"],
-            "estado": ["Condition", "Estado"],
-            "year_built": ["Year built", "Año de construcción"],
-            "exterior_type": ["Exterior type", "Tipo exterior"],
-            "precio_comunidad": ["Community fees", "Gastos de comunidad"],
-            "tipo_propiedad": ["Type of property", "Tipo de propiedad"],
-            "barrio": ["Zone / City", "Zona / Ciudad"],
-        }
-
         # Try new structure first: div.paginacion-ficha-masdatos ul li.bloque-icono-name-valor1
+        rows = []
         masdatos_div = soup.find("div", class_="paginacion-ficha-masdatos")
         if masdatos_div:
             for li in masdatos_div.find_all("li", class_="bloque-icono-name-valor1"):
@@ -272,26 +271,13 @@ class PuertoInmobiliariaScraper:
                     valor_span = divs[1].find("span")
 
                     if caracteristica_span and valor_span:
-                        caracteristica = caracteristica_span.get_text(strip=True)
-                        valor = valor_span.get_text(strip=True)
+                        rows.append((caracteristica_span.get_text(strip=True), valor_span.get_text(strip=True)))
 
-                        # Try to map to our field names
-                        for field_name, field_labels in field_mapping.items():
-                            if any(label.lower() in caracteristica.lower() for label in field_labels):
-                                if field_name in ["habitaciones", "banos"]:
-                                    characteristics[field_name] = self._parse_int(valor, field_name)
-                                elif field_name in ["superficie_m2", "superficie_util_m2"]:
-                                    valor_clean = re.sub(r"m²|m2", "", valor).strip()
-                                    characteristics[field_name] = self._parse_float(valor_clean, field_name)
-                                elif field_name == "precio_comunidad":
-                                    valor_clean = re.sub(r"€", "", valor).strip()
-                                    characteristics[field_name] = self._parse_float(valor_clean, field_name)
-                                else:
-                                    characteristics[field_name] = valor
-                                break
+        characteristics = self._map_characteristics(rows)
 
         # Fallback to old structure if nothing found
         if not characteristics:
+            rows = []
             listados = soup.find("ul", class_="fichapropiedad-listadatos")
             if listados:
                 for li in listados.find_all("li"):
@@ -299,22 +285,54 @@ class PuertoInmobiliariaScraper:
                     valor_span = li.find("span", class_="valor")
 
                     if caracteristica_span and valor_span:
-                        caracteristica = caracteristica_span.get_text(strip=True)
-                        valor = valor_span.get_text(strip=True)
+                        rows.append((caracteristica_span.get_text(strip=True), valor_span.get_text(strip=True)))
+            characteristics = self._map_characteristics(rows)
 
-                        for field_name, field_labels in field_mapping.items():
-                            if any(label.lower() in caracteristica.lower() for label in field_labels):
-                                if field_name in ["habitaciones", "banos"]:
-                                    characteristics[field_name] = self._parse_int(valor, field_name)
-                                elif field_name in ["superficie_m2", "superficie_util_m2"]:
-                                    valor_clean = re.sub(r"m²|m2", "", valor).strip()
-                                    characteristics[field_name] = self._parse_float(valor_clean, field_name)
-                                elif field_name == "precio_comunidad":
-                                    valor_clean = re.sub(r"€", "", valor).strip()
-                                    characteristics[field_name] = self._parse_float(valor_clean, field_name)
-                                else:
-                                    characteristics[field_name] = valor
-                                break
+        return characteristics
+
+    def _map_characteristics(self, rows: list) -> dict:
+        """Map (label, value) rows to standard field names; first match wins."""
+        # Map of Puerto Inmobiliaria characteristic names to our field names
+        field_mapping = {
+            "habitaciones": ["Bedrooms", "Dormitorios", "Habitaciones"],
+            "banos": ["Bathrooms", "Baños"],
+            "estado": ["Condition", "Estado"],
+            "year_built": ["Year built", "Año de construcción"],
+            "exterior_type": ["Exterior type", "Tipo exterior"],
+            "precio_comunidad": ["Community fees", "Gastos de comunidad"],
+            "tipo_propiedad": ["Type of property", "Tipo de propiedad"],
+            "barrio": ["Zone / City", "Zona / Ciudad"],
+        }
+
+        characteristics = {}
+        generic_area = None
+        for caracteristica, valor in rows:
+            label = caracteristica.strip().rstrip(":").strip().lower()
+
+            area_field = self._AREA_LABELS.get(label)
+            if area_field or label == self._GENERIC_AREA_LABEL:
+                parsed = self._parse_float(re.sub(r"m²|m2", "", valor).strip(), area_field or "superficie_m2")
+                if area_field is None:
+                    generic_area = generic_area if generic_area is not None else parsed
+                elif characteristics.get(area_field) is None:
+                    characteristics[area_field] = parsed
+                continue
+
+            for field_name, field_labels in field_mapping.items():
+                if field_name in characteristics:
+                    continue
+                if any(field_label.lower() in label for field_label in field_labels):
+                    if field_name in ["habitaciones", "banos"]:
+                        characteristics[field_name] = self._parse_int(valor, field_name)
+                    elif field_name == "precio_comunidad":
+                        valor_clean = re.sub(r"€", "", valor).strip()
+                        characteristics[field_name] = self._parse_float(valor_clean, field_name)
+                    else:
+                        characteristics[field_name] = valor
+                    break
+
+        if "superficie_m2" not in characteristics and generic_area is not None:
+            characteristics["superficie_m2"] = generic_area
 
         return characteristics
 
