@@ -323,6 +323,89 @@ class TestNormalizeProperty:
         assert propiedad.piscina is True
 
 
+class TestNormalizePropertyFalsyValues:
+    """Explicit False/0 values must survive normalize_property (#48)."""
+
+    URL = "https://example.com/prop/falsy"
+
+    def _norm(self, mock_fuente, scraper_config, **fields):
+        scraper = ConcreteScraperForTesting(scraper_config)
+        return scraper.normalize_property({"url_original": self.URL, **fields}, mock_fuente)
+
+    def test_explicit_false_ascensor_and_garaje_kept(self, mock_fuente, scraper_config):
+        p = self._norm(mock_fuente, scraper_config, ascensor=False, garaje=False)
+        assert p.ascensor is False
+        assert p.garaje is False
+
+    def test_explicit_false_english_aliases_kept(self, mock_fuente, scraper_config):
+        p = self._norm(mock_fuente, scraper_config, elevator=False, garage=False)
+        assert p.ascensor is False
+        assert p.garaje is False
+
+    def test_primary_key_none_falls_back_to_alias(self, mock_fuente, scraper_config):
+        p = self._norm(mock_fuente, scraper_config, ascensor=None, elevator=True)
+        assert p.ascensor is True
+
+    def test_zero_habitaciones_and_banos_kept(self, mock_fuente, scraper_config):
+        p = self._norm(mock_fuente, scraper_config, habitaciones=0, banos=0)
+        assert p.habitaciones == 0
+        assert p.banos == 0
+
+    def test_zero_planta_kept(self, mock_fuente, scraper_config):
+        assert self._norm(mock_fuente, scraper_config, planta=0).planta == 0
+        assert self._norm(mock_fuente, scraper_config, floor=0).planta == 0
+
+    @pytest.mark.parametrize("value", ["baja", "Planta baja", "bajo", "PB"])
+    def test_planta_baja_text_becomes_zero(self, mock_fuente, scraper_config, value):
+        # Samper/Tular _extract_planta return 'baja' as a string
+        assert self._norm(mock_fuente, scraper_config, planta=value).planta == 0
+
+    def test_planta_sotano_text_becomes_minus_one(self, mock_fuente, scraper_config):
+        assert self._norm(mock_fuente, scraper_config, planta="sotano").planta == -1
+        assert self._norm(mock_fuente, scraper_config, planta="Sótano").planta == -1
+
+    def test_planta_numeric_string_still_parsed(self, mock_fuente, scraper_config):
+        assert self._norm(mock_fuente, scraper_config, planta="3").planta == 3
+
+    def test_implausible_price_and_area_dropped(self, mock_fuente, scraper_config):
+        p = self._norm(mock_fuente, scraper_config, precio=0, superficie_m2=0)
+        assert p.precio is None
+        assert p.superficie_m2 is None
+        p = self._norm(mock_fuente, scraper_config, precio=-5, superficie_m2=1_000_000)
+        assert p.precio is None
+        assert p.superficie_m2 is None
+
+
+class TestParseInt:
+    """_parse_int takes the first integer token and rejects ranges (#48)."""
+
+    @pytest.fixture
+    def scraper(self, scraper_config):
+        return ConcreteScraperForTesting(scraper_config)
+
+    def test_first_token_only(self, scraper):
+        assert scraper._parse_int("Planta 12 de 15") == 12
+        assert scraper._parse_int("2 banos + 1 aseo") == 2
+
+    def test_range_is_rejected_not_concatenated(self, scraper):
+        # Documented behaviour: a range is ambiguous, so no value is stored
+        assert scraper._parse_int("3-4 dormitorios") is None
+        assert scraper._parse_int("3 - 4") is None
+
+    def test_plain_values_unchanged(self, scraper):
+        assert scraper._parse_int("3") == 3
+        assert scraper._parse_int(3) == 3
+        assert scraper._parse_int(2.0) == 2
+        assert scraper._parse_int("") is None
+        assert scraper._parse_int("sin datos") is None
+
+    def test_thousands_separator_kept(self, scraper):
+        assert scraper._parse_int("1.200") == 1200
+
+    def test_superscript_ignored(self, scraper):
+        assert scraper._parse_int("90 m\u00b2") == 90
+
+
 # ============================================================
 # TESTS FOR fetch_content()
 # ============================================================

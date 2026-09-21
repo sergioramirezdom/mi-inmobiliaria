@@ -3,6 +3,8 @@
 import asyncio
 import hashlib
 import logging
+import re
+import unicodedata
 from abc import ABC, abstractmethod
 from datetime import datetime
 from typing import Any, List, Optional
@@ -27,6 +29,18 @@ from .exceptions import (
 from .zona_normalizer import CatalogoInvalidoError, normalizar as normalizar_zona
 
 logger = logging.getLogger(__name__)
+
+# Superficies at or above this (m²) are parsing garbage, not listings
+MAX_SUPERFICIE_M2 = 1_000_000
+
+
+def _first_present(raw: dict, *keys: str) -> Any:
+    """First value among ``keys`` that is not None/"" (keeps explicit 0/False)."""
+    for key in keys:
+        value = raw.get(key)
+        if value is not None and value != "":
+            return value
+    return None
 
 
 class ScraperBase(ABC):
@@ -182,9 +196,15 @@ class ScraperBase(ABC):
 
             # Parse numeric fields safely
             precio = self._parse_float(raw_data.get("precio"), "precio")
-            superficie_m2 = self._parse_float(raw_data.get("superficie_m2") or raw_data.get("m2"), "m2")
-            habitaciones = self._parse_int(raw_data.get("habitaciones") or raw_data.get("rooms"), "habitaciones")
-            banos = self._parse_int(raw_data.get("banos") or raw_data.get("bathrooms"), "banos")
+            precio = self._plausible(precio, min_exclusive=0)
+            superficie_m2 = self._plausible(
+                self._parse_float(raw_data.get("superficie_m2") or raw_data.get("m2"), "m2"),
+                min_exclusive=0,
+                max_exclusive=MAX_SUPERFICIE_M2,
+            )
+            # _first_present keeps explicit 0/False (studio, planta baja, "sin ascensor")
+            habitaciones = self._parse_int(_first_present(raw_data, "habitaciones", "rooms"), "habitaciones")
+            banos = self._parse_int(_first_present(raw_data, "banos", "bathrooms"), "banos")
 
             zona_match = normalizar_zona(
                 barrio=raw_data.get("barrio"),
@@ -209,10 +229,10 @@ class ScraperBase(ABC):
                 habitaciones=habitaciones,
                 banos=banos,
                 aseos=self._parse_int(raw_data.get("aseos"), "aseos"),
-                planta=self._parse_int(raw_data.get("planta") or raw_data.get("floor"), "planta"),
+                planta=self._parse_planta(_first_present(raw_data, "planta", "floor")),
                 total_plantas=self._parse_int(raw_data.get("total_plantas"), "total_plantas"),
-                ascensor=self._parse_bool(raw_data.get("ascensor") or raw_data.get("elevator")),
-                garaje=self._parse_bool(raw_data.get("garaje") or raw_data.get("garage")),
+                ascensor=self._parse_bool(_first_present(raw_data, "ascensor", "elevator")),
+                garaje=self._parse_bool(_first_present(raw_data, "garaje", "garage")),
                 trastero=self._parse_bool(raw_data.get("trastero")),
                 terraza=self._parse_bool(raw_data.get("terraza")),
                 balcon=self._parse_bool(raw_data.get("balcon")),
@@ -414,15 +434,38 @@ class ScraperBase(ABC):
             return int(value)
 
         if isinstance(value, str):
-            try:
-                # Extract only ASCII digits (0-9), ignoring superscripts like ²
-                digits = "".join(c for c in value if c in "0123456789")
-                return int(digits) if digits else None
-            except (ValueError, AttributeError):
-                self.logger.debug(f"Could not parse {field_name}: '{value}'")
+            # A range ("3-4 dormitorios") is ambiguous: store nothing rather
+            # than the concatenation of both ends.
+            if re.search(r"\d\s*[-\u2013]\s*\d", value):
+                self.logger.debug(f"Ambiguous range for {field_name}: '{value}'")
                 return None
+            # First ASCII integer token (dot-grouped thousands allowed), so
+            # "Planta 12 de 15" -> 12 and superscripts like ² are ignored.
+            m = re.search(r"\d{1,3}(?:\.\d{3})+(?!\d)|\d+", value)
+            if not m:
+                return None
+            return int(m.group().replace(".", ""))
 
         return None
+
+    def _parse_planta(self, value: Any) -> Optional[int]:
+        """Parse a floor: 'baja'/'bajo'/'PB' -> 0, 'sotano' -> -1, else first integer."""
+        if isinstance(value, str):
+            text = unicodedata.normalize("NFKD", value.lower()).encode("ascii", "ignore").decode()
+            if re.search(r"\bsotano\b", text):
+                return -1
+            if re.search(r"\b(baja|bajo|pb)\b", text):
+                return 0
+        return self._parse_int(value, "planta")
+
+    @staticmethod
+    def _plausible(value: Optional[float], min_exclusive: float, max_exclusive: Optional[float] = None) -> Optional[float]:
+        """Drop values outside (min_exclusive, max_exclusive): 0/negative prices, absurd areas."""
+        if value is None:
+            return None
+        if value <= min_exclusive or (max_exclusive is not None and value >= max_exclusive):
+            return None
+        return value
 
     def _parse_bool(self, value: Any) -> Optional[bool]:
         """Safe parsing of boolean values."""

@@ -320,9 +320,8 @@ class PaginatedScraper:
                             stats["garajes"] = stats.get("garajes", 0) + 1
                             continue
 
-                        # Ensure tipo_operacion is set for venta
-                        if not operacion:
-                            raw_data["tipo_operacion"] = "venta"
+                        # Always persist an explicit tipo_operacion (detector-confirmed or default venta)
+                        raw_data["tipo_operacion"] = operacion or "venta"
 
                         # Skip properties from wrong municipality
                         if fuente_config.municipio_filter:
