@@ -111,6 +111,8 @@ class Propiedad(SQLModel, table=True):
     respuesta_oferta: Optional[str] = None  # pendiente | aceptada | rechazada | contrapropuesta
     precio_oferta: Optional[float] = None
     intentos_fallidos: Optional[int] = Field(default=0)  # consecutive "no data" sold-check strikes
+    ultimo_strike: Optional[datetime] = None  # when the last strike was counted (strikes are time-separated)
+    estado_baja: Optional[str] = None  # why it was deactivated: Vendida | Reservada | No disponible (estado stays the building condition)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
@@ -219,6 +221,7 @@ class RegistroEjecucion(SQLModel, table=True):
     encontradas: Optional[int] = None  # scrape only: raw listing URLs found, pre-filter/pre-dedup
     duracion_segundos: Optional[float] = None
     run_id: Optional[str] = Field(default=None, index=True)  # UUID4 shared by all rows from one top-level cycle
+    error_mensaje: Optional[str] = None  # truncated cause of a whole-run failure (errores >= 1)
 
 
 class EstadisticaNotarial(SQLModel, table=True):

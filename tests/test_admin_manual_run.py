@@ -182,6 +182,23 @@ async def test_run_manual_scrape_crash_path_writes_none_encontradas():
 
 
 @pytest.mark.asyncio
+async def test_run_manual_scrape_persists_error_text_from_shared_normalisation():
+    session = FakeSession()
+    fuente = _fuente(24)
+    stub = StubRunner(
+        stats={"nuevas": 0, "duplicadas": 0, "errores": 0, "urls_encontradas": 0,
+               "tiempo_segundos": 0.1, "error": "layout changed"}
+    )
+
+    await run_manual_scrape(session, fuente, runner=stub)
+
+    row = [r for r in session.added if isinstance(r, RegistroEjecucion)][0]
+    assert row.errores == 1
+    assert row.encontradas is None
+    assert row.error_mensaje == "layout changed"
+
+
+@pytest.mark.asyncio
 async def test_run_manual_scrape_writes_none_encontradas_when_stats_key_absent():
     session = FakeSession()
     fuente = _fuente(23)

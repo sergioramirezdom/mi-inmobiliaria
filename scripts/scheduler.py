@@ -34,6 +34,18 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def _exit_on_failure(summary, label):
+    """Exit 1 when the cycle failed, so CI (GitHub Actions) shows it as failed."""
+    if summary.ok:
+        return
+    for failure in summary.failed:
+        logger.error(f"❌ {label} failure — {failure}")
+    if summary.fatal_error:
+        logger.error(f"❌ {label} aborted — {summary.fatal_error}")
+    logger.error(f"❌ {label} finished with errors — exiting with code 1")
+    sys.exit(1)
+
+
 def main():
     """Main entry point."""
     parser = ArgumentParser(
@@ -87,15 +99,17 @@ def main():
         )
         if args.check_sold:
             logger.info("🔍 Running sold properties check...")
-            asyncio.run(scheduler.run_sold_check())
+            summary = asyncio.run(scheduler.run_sold_check())
+            _exit_on_failure(summary, "Sold check")
             logger.info("✅ Sold check complete — exiting")
         elif args.once:
             if args.force:
                 logger.info("▶️  Running forced cycle (--once --force mode)")
-                asyncio.run(scheduler.force_scrape_all())
+                summary = asyncio.run(scheduler.force_scrape_all())
             else:
                 logger.info("▶️  Running single cycle (--once mode)")
-                asyncio.run(scheduler.check_and_scrape())
+                summary = asyncio.run(scheduler.check_and_scrape())
+            _exit_on_failure(summary, "Single cycle")
             logger.info("✅ Single cycle complete — exiting")
         else:
             asyncio.run(scheduler.start_daemon())

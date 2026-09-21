@@ -25,6 +25,7 @@ from uuid import uuid4
 from admin.log_capture import capture_logs
 from db.database import RegistroEjecucionCRUD
 from db.models import Fuente, RegistroEjecucion
+from scraper.run_stats import normalize_run_stats
 from scraper.runner import ScraperRunner
 from scraper.sold_checker import check_sold_properties
 
@@ -72,24 +73,21 @@ async def run_manual_scrape(
                 "error": str(exc),
             }
 
+        # run_paginated_scraper reports a whole-run failure with errores=0;
+        # the shared helper (also used by the scheduler) makes the run-log row
+        # show the failure and keep its text.
+        stats = normalize_run_stats(stats)
         nuevas = int(stats.get("nuevas") or 0)
         duplicadas = int(stats.get("duplicadas") or 0)
         errores = int(stats.get("errores") or 0)
-        if stats.get("error") and errores == 0:
-            # run_paginated_scraper reports a whole-run failure with errores=0;
-            # the manual run-log row must still show the failure.
-            errores = 1
-            stats["errores"] = 1
 
         duracion = stats.get("tiempo_segundos")
         if duracion is None:
             duracion = stats.get("duracion_segundos")
 
-        # Real listing-URL count found before dedup/filtering. A whole-run
-        # failure (stats carries an "error" key, and errores was just forced
-        # to 1 above) must persist None, never 0 — a crashed run parsed
-        # nothing because nothing ran, and 0 would read as EMPTY not FAILING.
-        encontradas = None if stats.get("error") else stats.get("urls_encontradas")
+        # Real listing-URL count found before dedup/filtering; None on a
+        # whole-run failure (normalize_run_stats), absent key stays None.
+        encontradas = stats.get("urls_encontradas")
 
         registro = RegistroEjecucion(
             fuente_id=fuente.id,
@@ -99,6 +97,7 @@ async def run_manual_scrape(
             duplicadas=duplicadas,
             encontradas=encontradas,
             errores=errores,
+            error_mensaje=stats.get("error_mensaje"),
             duracion_segundos=duracion,
             run_id=run_id,
         )

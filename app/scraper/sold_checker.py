@@ -12,7 +12,13 @@ from db.models import Propiedad, Fuente, PrecioHistorico, RegistroEjecucion
 from db.database import RegistroEjecucionCRUD
 from .config import ScraperConfig
 from .detail_factory import get_detail_scraper
-from .check_outcome import CheckOutcome, classify_check_outcome, apply_check_outcome
+from .check_outcome import (
+    CheckOutcome,
+    apply_check_outcome,
+    classify_check_outcome,
+    classify_fetch_error,
+    source_looks_broken,
+)
 from .price_drop import build_price_drop_entry
 
 logger = logging.getLogger(__name__)
@@ -46,9 +52,14 @@ async def check_sold_properties(
     Fetch all active properties' detail pages and mark sold/reserved ones inactive.
 
     Uses `classify_check_outcome()` + `apply_check_outcome()` as the single
-    gate: an explicit GONE signal deactivates immediately, an EMPTY (no-data)
-    result only deactivates after a second confirming strike
-    (`STRIKE_THRESHOLD`), and fetch errors never touch the strike counter.
+    gate: an explicit GONE signal (a 404/410 response or a sold status on the
+    ficha) deactivates immediately, an EMPTY (no-data) result only deactivates
+    after a second confirming strike on a later day (`STRIKE_THRESHOLD`,
+    `STRIKE_MIN_INTERVAL`), and fetch errors never touch the strike counter.
+    EMPTY results are held until the whole run is known: when most of a
+    fuente's listings came back EMPTY/ERROR the source is broken (anti-bot
+    page, layout change), so none of them is struck and the fuente is reported
+    in ``stats["fuentes_fallidas"]``.
 
     When `fuente_id` is omitted or `None`, every active property across all
     fuentes is checked (the scheduler path). When `fuente_id` is given, only
@@ -82,8 +93,21 @@ async def check_sold_properties(
         "sin_datos": 0,
         "vendidas_lista": [],
         "por_fuente": {},
+        "fuentes_fallidas": {},
     }
     por_fuente = stats["por_fuente"]
+    pending_empty: Dict[Optional[int], list] = {}
+
+    def record_deactivated(index: int, prop) -> None:
+        logger.info(f"[{index}/{stats['total']}] 🚫 {prop.estado_baja}: {prop.titulo[:60]}")
+        stats["vendidas"] += 1
+        _fuente_stats(por_fuente, prop.fuente_id)["vendidas"] += 1
+        stats["vendidas_lista"].append({
+            "titulo": prop.titulo,
+            "url": prop.url_original,
+            "precio": prop.precio,
+            "estado": prop.estado_baja,
+        })
 
     logger.info(f"🔍 Verificando {stats['total']} propiedades activas...")
 
@@ -101,26 +125,15 @@ async def check_sold_properties(
             details = await scraper.scrape_property_details(prop.url_original)
 
             outcome = classify_check_outcome(details)
+            if outcome is CheckOutcome.EMPTY:
+                # Struck only after the run, once we know the source is not broken.
+                pending_empty.setdefault(prop.fuente_id, []).append((i, prop))
+                continue
             estado = details.get("estado", "Vendida") if outcome is CheckOutcome.GONE else None
             result = apply_check_outcome(session, prop, outcome, estado=estado)
 
             if result == "deactivated":
-                logger.info(f"[{i}/{stats['total']}] 🚫 {prop.estado}: {prop.titulo[:60]}")
-                stats["vendidas"] += 1
-                fstats["vendidas"] += 1
-                stats["vendidas_lista"].append({
-                    "titulo": prop.titulo,
-                    "url": prop.url_original,
-                    "precio": prop.precio,
-                    "estado": prop.estado,
-                })
-            elif result == "strike":
-                logger.warning(
-                    f"[{i}/{stats['total']}] ⚠️ Scraper sin datos válidos para "
-                    f"{prop.url_original[:60]} — 1ª confirmación, aún activa"
-                )
-                stats["sin_datos"] += 1
-                fstats["sin_datos"] += 1
+                record_deactivated(i, prop)
             else:  # "alive"
                 logger.debug(f"[{i}/{stats['total']}] ✅ Activa: {prop.titulo[:60]}")
                 stats["activas"] += 1
@@ -153,21 +166,14 @@ async def check_sold_properties(
                         logger.info(f"[{i}/{stats['total']}] 📈 Subida precio: {prop.titulo[:50]} {precio_anterior:.0f}€ → {nuevo_precio:.0f}€")
 
         except Exception as e:
-            err_str = str(e)
-            # 404 via raise_for_status() → property gone, mark as inactive (GONE, no strike needed)
-            if "404" in err_str or "Not Found" in err_str:
+            # Only a 404/410 response means the listing is gone; timeouts, 5xx and
+            # network errors are counted as errors and never touch the listing.
+            if classify_fetch_error(e) is CheckOutcome.GONE:
                 try:
-                    result = apply_check_outcome(session, prop, CheckOutcome.GONE, estado="No disponible")
-                    logger.info(f"[{i}/{stats['total']}] 🚫 404 No disponible: {prop.titulo[:60]}")
-                    stats["vendidas"] += 1
-                    fstats["vendidas"] += 1
-                    stats["vendidas_lista"].append({
-                        "titulo": prop.titulo,
-                        "url": prop.url_original,
-                        "precio": prop.precio,
-                        "estado": "No disponible",
-                    })
+                    apply_check_outcome(session, prop, CheckOutcome.GONE, estado="No disponible")
+                    record_deactivated(i, prop)
                 except Exception:
+                    session.rollback()
                     stats["errores"] += 1
                     fstats["errores"] += 1
             else:
@@ -176,6 +182,40 @@ async def check_sold_properties(
                 logger.warning(f"[{i}/{stats['total']}] ⚠️ Error en {prop.url_original[:60]}: {e}")
                 stats["errores"] += 1
                 fstats["errores"] += 1
+
+    # Strike the EMPTY results, unless they show the source itself is broken.
+    for fuente_key, empties in pending_empty.items():
+        fstats = _fuente_stats(por_fuente, fuente_key)
+        if source_looks_broken(len(empties) + fstats["errores"], fstats["total"]):
+            motivo = (
+                f"{len(empties)} of {fstats['total']} listings returned no data and "
+                f"{fstats['errores']} failed to fetch (anti-bot page or layout change?); "
+                "nothing was deactivated"
+            )
+            logger.error(f"❌ Fuente {fuente_key}: {motivo}")
+            stats["fuentes_fallidas"][fuente_key] = motivo
+            fstats["errores"] += len(empties)
+            fstats["error_mensaje"] = motivo
+            stats["errores"] += len(empties)
+            continue
+        for i, prop in empties:
+            try:
+                result = apply_check_outcome(session, prop, CheckOutcome.EMPTY)
+            except Exception as e:
+                session.rollback()
+                logger.warning(f"[{i}/{stats['total']}] ⚠️ Error en {prop.url_original[:60]}: {e}")
+                stats["errores"] += 1
+                fstats["errores"] += 1
+                continue
+            if result == "deactivated":
+                record_deactivated(i, prop)
+            else:  # "strike"
+                logger.warning(
+                    f"[{i}/{stats['total']}] ⚠️ Scraper sin datos válidos para "
+                    f"{prop.url_original[:60]} — 1ª confirmación, aún activa"
+                )
+                stats["sin_datos"] += 1
+                fstats["sin_datos"] += 1
 
     elapsed = time.time() - start_time
 
@@ -202,6 +242,7 @@ async def check_sold_properties(
                     vendidas=fstat["vendidas"],
                     sin_datos=fstat["sin_datos"],
                     errores=fstat["errores"],
+                    error_mensaje=fstat.get("error_mensaje"),
                     duracion_segundos=round(elapsed, 2),
                     run_id=run_id,
                 ),

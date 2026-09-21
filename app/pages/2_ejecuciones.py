@@ -136,6 +136,7 @@ def _render_recent_runs() -> None:
             "duplicadas": _fmt_counter(r.duplicadas),
             "errores": r.errores,
             "total": r.total,
+            "error": r.error_mensaje or "—",
             "run_id": r.run_id or "—",
         }
         for r in recientes

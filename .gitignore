@@ -64,6 +64,8 @@ quick_*.py
 load_env.py
 verify_*.py
 migrate_*.py
+# migration scripts are tracked (they must be reviewable and re-runnable)
+!scripts/migrate_*.py
 alpica_ejemplo_vivienda.html
 *.log
 test_output.log

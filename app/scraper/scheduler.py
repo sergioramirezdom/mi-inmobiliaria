@@ -14,6 +14,7 @@ from sqlmodel import Session, select
 
 from db.database import engine, RegistroEjecucionCRUD
 from db.models import Fuente, Propiedad, FiltroAlerta, RegistroEjecucion
+from .run_stats import RunSummary, normalize_run_stats
 from .runner import ScraperRunner
 from .sold_checker import check_sold_properties
 from notifications.telegram import TelegramNotifier
@@ -57,9 +58,14 @@ class ScraperScheduler:
             self.logger.error(f"❌ ScraperScheduler error: {e}", exc_info=True)
             raise
 
-    async def check_and_scrape(self) -> None:
-        """Check all active fuentes and scrape if interval has passed."""
+    async def check_and_scrape(self) -> RunSummary:
+        """Check all active fuentes and scrape if interval has passed.
+
+        Returns a `RunSummary` (failed fuentes / top-level error) so a
+        one-shot caller can turn a failed cycle into a non-zero exit code.
+        """
         run_id = str(uuid.uuid4())
+        summary = RunSummary()
         try:
             with Session(engine) as session:
                 # Get all active fuentes
@@ -68,13 +74,15 @@ class ScraperScheduler:
 
                 if not fuentes:
                     self.logger.debug("No active fuentes found")
-                    return
+                    return summary
 
                 self.logger.debug(f"🔍 Checking {len(fuentes)} active fuente(s)...")
 
                 for fuente in fuentes:
                     if self._should_scrape(fuente):
-                        await self._scrape_fuente(fuente, run_id=run_id)
+                        error = await self._scrape_fuente(fuente, run_id=run_id)
+                        if error:
+                            summary.failed.append(f"{fuente.nombre}: {error}")
                     else:
                         next_scrape = self._get_next_scrape_time(fuente)
                         time_until = self._format_time_delta(next_scrape)
@@ -84,12 +92,18 @@ class ScraperScheduler:
 
         except Exception as e:
             self.logger.error(f"Error in check_and_scrape: {e}", exc_info=True)
+            summary.fatal_error = str(e)
+        return summary
 
-    async def run_sold_check(self) -> None:
+    async def run_sold_check(self) -> RunSummary:
         """Check all active properties and mark sold ones as inactive. Sends Telegram alert."""
+        summary = RunSummary()
         try:
             with Session(engine) as session:
                 stats = await check_sold_properties(session)
+
+            for fuente_id, motivo in stats.get("fuentes_fallidas", {}).items():
+                summary.failed.append(f"fuente {fuente_id}: {motivo}")
 
             vendidas = stats.get("vendidas_lista", [])
             if vendidas:
@@ -107,10 +121,13 @@ class ScraperScheduler:
                     )
         except Exception as e:
             self.logger.error(f"❌ Error en sold check: {e}", exc_info=True)
+            summary.fatal_error = str(e)
+        return summary
 
-    async def force_scrape_all(self) -> None:
+    async def force_scrape_all(self) -> RunSummary:
         """Force scraping of all active fuentes regardless of intervalo_horas."""
         run_id = str(uuid.uuid4())
+        summary = RunSummary()
         try:
             with Session(engine) as session:
                 stmt = select(Fuente).where(Fuente.activa == True)
@@ -118,17 +135,25 @@ class ScraperScheduler:
 
             if not fuentes:
                 self.logger.info("No active fuentes found")
-                return
+                return summary
 
             self.logger.info(f"🔁 Forcing scrape for {len(fuentes)} fuente(s)...")
             for fuente in fuentes:
-                await self._scrape_fuente(fuente, run_id=run_id)
+                error = await self._scrape_fuente(fuente, run_id=run_id)
+                if error:
+                    summary.failed.append(f"{fuente.nombre}: {error}")
 
         except Exception as e:
             self.logger.error(f"Error in force_scrape_all: {e}", exc_info=True)
+            summary.fatal_error = str(e)
+        return summary
 
-    async def _scrape_fuente(self, fuente: Fuente, run_id: Optional[str] = None) -> None:
-        """Scrape a single fuente and send notifications based on filters."""
+    async def _scrape_fuente(self, fuente: Fuente, run_id: Optional[str] = None) -> Optional[str]:
+        """Scrape a single fuente and send notifications based on filters.
+
+        Returns the error text when the scrape failed (whole-run failure or an
+        unexpected exception), None otherwise.
+        """
         fuente_id = fuente.id
         fuente_nombre = fuente.nombre
         try:
@@ -144,15 +169,18 @@ class ScraperScheduler:
                     results_per_page=self.results_per_page
                 )
 
+                # A whole-run failure arrives as errores=0 plus an "error" key;
+                # normalise it (shared with the manual run) so the row is FAILING.
+                stats = normalize_run_stats(stats)
+                error = stats.get("error")
+
                 # Log results
                 nuevas = stats.get("nuevas", 0)
                 duplicadas = stats.get("duplicadas", 0)
                 errores = stats.get("errores", 0)
-                # Real listing-URL count found before dedup/filtering. On a
-                # whole-run failure the synthetic stats dict carries
-                # urls_encontradas=0 plus an "error" key — persisting that 0
-                # would falsely assert the parser ran, so write None instead.
-                encontradas = None if stats.get("error") else stats.get("urls_encontradas")
+                # Real listing-URL count found before dedup/filtering (None on
+                # a whole-run failure: a run that crashed parsed nothing).
+                encontradas = stats.get("urls_encontradas")
                 paginas = stats.get("paginas_procesadas", 0)
                 tiempo = stats.get("tiempo_segundos", 0)
 
@@ -162,8 +190,10 @@ class ScraperScheduler:
                     f"errores={errores}, páginas={paginas}, tiempo={tiempo}s"
                 )
 
-                # Update ultima_ejecucion in DB
-                self._update_execution_time(fuente, session)
+                # Advance ultima_ejecucion only on success: a failed run must
+                # be retried on the next cycle, not after a full interval.
+                if not error:
+                    self._update_execution_time(fuente, session)
 
                 # Write run-log row. Defensive: a log-write failure must never
                 # block notification sending below.
@@ -178,6 +208,7 @@ class ScraperScheduler:
                             duplicadas=duplicadas,
                             encontradas=encontradas,
                             errores=errores,
+                            error_mensaje=stats.get("error_mensaje"),
                             duracion_segundos=tiempo,
                             run_id=run_id,
                         ),
@@ -200,8 +231,11 @@ class ScraperScheduler:
                     # alerts (intentional duplication with the global send above).
                     await self._send_favorite_drop_alerts(bajadas, session, fuente=fuente)
 
+                return error
+
         except Exception as e:
             self.logger.error(f"❌ Error scraping {fuente_nombre}: {e}", exc_info=True)
+            return str(e)
 
     async def _send_favorite_drop_alerts(
         self,
