@@ -9,7 +9,7 @@ import re
 import unicodedata
 from typing import Any, Dict, Optional, Tuple
 
-from scraper.zona_normalizer import normalizar as normalizar_zona
+from .zona_normalizer import CONFIANZA_EXACTA, normalizar as normalizar_zona
 
 
 # (suggested_value, human-readable reason shown in UI)
@@ -20,9 +20,61 @@ def _norm(s: str) -> str:
     return unicodedata.normalize("NFKD", s.lower()).encode("ascii", "ignore").decode()
 
 
-def _has_negation(text_norm: str, keyword: str) -> bool:
-    pattern = rf"(sin|no (tiene|hay|dispone|cuenta con)|no (tiene|hay))\s+\w*\s*{keyword}"
-    return bool(re.search(pattern, text_norm))
+# Negation right before the keyword, within the same clause (up to 3 words between).
+_NEGATION_RE = re.compile(
+    r"\b(?:sin|no\s+(?:tiene|hay|dispone|cuenta|incluye)(?:\s+(?:de|con))?)(?:\s+\w+){0,3}\s*$"
+)
+# Proximity or speculative wording: the feature is not (yet) part of the property.
+_NOT_A_FEATURE_RE = re.compile(
+    r"\b(?:cerca|junto|frente|proxim\w*|lindando|al lado|a pocos (?:metros|minutos)"
+    r"|posibilidad|opcion|instalar|instalacion|colocar|preinstalacion|proyecto)\b(?:\s+\w+){0,4}\s*$"
+)
+
+
+def _classify_mention(text_norm: str, keyword: str) -> Optional[bool]:
+    """True/False if the text says the property has/lacks `keyword`; None if unclear.
+
+    `keyword` is a regex over the normalized text. Each mention is judged by
+    the clause preceding it: negation wins, proximity/speculative mentions
+    ("cerca de la piscina municipal", "posibilidad de instalar ascensor") are ignored.
+    """
+    has, lacks = False, False
+    for m in re.finditer(rf"\b{keyword}\b", text_norm):
+        clause = re.split(r"[,.;:\n]", text_norm[max(0, m.start() - 60):m.start()])[-1]
+        if _NEGATION_RE.search(clause):
+            lacks = True
+        elif not _NOT_A_FEATURE_RE.search(clause):
+            has = True
+    if lacks:
+        return False
+    return True if has else None
+
+
+_M2_RE = re.compile(r"(\d+(?:[.,]\d+)?)\s*m[²2]")
+# Areas that describe something other than the dwelling itself
+_OTHER_AREA_RE = re.compile(r"\b(?:parcela|terreno|solar|finca|jardin|terraza|patio|garaje|trastero|plaza)\b")
+_DWELLING_AREA_RE = re.compile(r"\b(?:construid\w*|util\w*|vivienda)\b")
+
+
+def _extract_superficie(text_norm: str) -> Optional[Suggestion]:
+    """Dwelling area: prefer 'construidos/utiles/vivienda' m2, skip parcela/terraza/etc."""
+    candidatos, preferidos = [], []
+    previo = 0
+    for m in _M2_RE.finditer(text_norm):
+        antes = text_norm[max(previo, m.start() - 30):m.start()]
+        despues = text_norm[m.end():m.end() + 15]
+        previo = m.end()
+        try:
+            val = float(m.group(1).replace(",", "."))
+        except ValueError:
+            continue
+        if not 20 <= val <= 2000 or _OTHER_AREA_RE.search(antes):
+            continue
+        sugerencia = (val, f"Extraído: '{m.group().strip()}'")
+        candidatos.append(sugerencia)
+        if _DWELLING_AREA_RE.search(antes) or _DWELLING_AREA_RE.search(despues):
+            preferidos.append(sugerencia)
+    return (preferidos or candidatos or [None])[0]
 
 
 def extract_suggestions(prop) -> Dict[str, Suggestion]:
@@ -41,15 +93,10 @@ def extract_suggestions(prop) -> Dict[str, Suggestion]:
 
     # ── Ascensor ─────────────────────────────────────────────────────────
     if prop.ascensor is None:
-        neg = bool(re.search(
-            r"(sin ascensor|no (tiene|hay|dispone|cuenta con) ascensor)", n
-        ))
-        pos = not neg and bool(re.search(r"\bascensor\b", n))
-
-        if neg:
+        tiene = _classify_mention(n, "ascensor")
+        if tiene is False:
             suggestions["ascensor"] = (False, "Detectado 'sin ascensor' en descripción")
-        elif pos:
-            # Extra confidence: if piso on floor >= 2 without negation, very likely
+        elif tiene:
             suggestions["ascensor"] = (True, "Detectado 'ascensor' en descripción")
 
     # ── Garaje ───────────────────────────────────────────────────────────
@@ -65,45 +112,20 @@ def extract_suggestions(prop) -> Dict[str, Suggestion]:
         elif pos:
             suggestions["garaje"] = (True, "Detectado 'garaje/parking' en descripción")
 
-    # ── Terraza ───────────────────────────────────────────────────────────
-    if prop.terraza is None and re.search(r"\bterraza\b", n):
-        neg = _has_negation(n, "terraza")
-        suggestions["terraza"] = (
-            not neg,
-            "'sin terraza' detectado" if neg else "Detectado 'terraza' en descripción",
-        )
-
-    # ── Balcón ────────────────────────────────────────────────────────────
-    if prop.balcon is None and re.search(r"\bbalcon\b", n):
-        neg = _has_negation(n, "balcon")
-        suggestions["balcon"] = (
-            not neg,
-            "'sin balcón' detectado" if neg else "Detectado 'balcón' en descripción",
-        )
-
-    # ── Piscina ───────────────────────────────────────────────────────────
-    if prop.piscina is None and re.search(r"\bpiscina\b", n):
-        neg = _has_negation(n, "piscina")
-        suggestions["piscina"] = (
-            not neg,
-            "'sin piscina' detectado" if neg else "Detectado 'piscina' en descripción",
-        )
-
-    # ── Trastero ─────────────────────────────────────────────────────────
-    if prop.trastero is None and re.search(r"\btrastero\b", n):
-        neg = _has_negation(n, "trastero")
-        suggestions["trastero"] = (
-            not neg,
-            "'sin trastero' detectado" if neg else "Detectado 'trastero' en descripción",
-        )
-
-    # ── Aire acondicionado ────────────────────────────────────────────────
-    if prop.aire_acondicionado is None and re.search(r"aire (acondicionado|acond\.?|acond\b)", n):
-        neg = _has_negation(n, "aire")
-        suggestions["aire_acondicionado"] = (
-            not neg,
-            "Detectado 'aire acondicionado' en descripción",
-        )
+    # ── Terraza / balcón / piscina / trastero / aire acondicionado ───────
+    amenities = [
+        ("terraza", "terraza", "'sin terraza' detectado", "Detectado 'terraza' en descripción"),
+        ("balcon", "balcon", "'sin balcón' detectado", "Detectado 'balcón' en descripción"),
+        ("piscina", "piscina", "'sin piscina' detectado", "Detectado 'piscina' en descripción"),
+        ("trastero", "trastero", "'sin trastero' detectado", "Detectado 'trastero' en descripción"),
+        ("aire_acondicionado", r"aire (?:acondicionado|acond)", "'sin aire' detectado",
+         "Detectado 'aire acondicionado' en descripción"),
+    ]
+    for field, keyword, neg_reason, pos_reason in amenities:
+        if getattr(prop, field) is None:
+            tiene = _classify_mention(n, keyword)
+            if tiene is not None:
+                suggestions[field] = (tiene, pos_reason if tiene else neg_reason)
 
     # ── Habitaciones ──────────────────────────────────────────────────────
     if prop.habitaciones is None:
@@ -115,7 +137,7 @@ def extract_suggestions(prop) -> Dict[str, Suggestion]:
 
     # ── Baños ─────────────────────────────────────────────────────────────
     if prop.banos is None:
-        m = re.search(r"(\d+)\s*(bano(s)?|aseo(s)?|cuarto(s)? de bano)", n)
+        m = re.search(r"(\d+)\s*(bano(s)?|cuarto(s)? de bano)", n)
         if m:
             val = int(m.group(1))
             if 1 <= val <= 6:
@@ -123,33 +145,16 @@ def extract_suggestions(prop) -> Dict[str, Suggestion]:
 
     # ── Superficie ────────────────────────────────────────────────────────
     if prop.superficie_m2 is None:
-        m = re.search(r"(\d+(?:[.,]\d+)?)\s*m[²2]", n)
-        if m:
-            try:
-                val = float(m.group(1).replace(",", "."))
-                if 20 <= val <= 2000:
-                    suggestions["superficie_m2"] = (val, f"Extraído: '{m.group().strip()}'")
-            except ValueError:
-                pass
+        found = _extract_superficie(n)
+        if found:
+            suggestions["superficie_m2"] = found
 
     # ── Barrio / zona ─────────────────────────────────────────────────────
     if not prop.barrio:
-        # Use original text (pre-norm) to preserve accents for display
-        raw_lower = raw.lower()
-        zone_patterns = [
-            r"urbanizaci[oó]n\s+([\wáéíóúñÁÉÍÓÚÑ][^,.\n]{2,30}?)(?=\s*[,.\n]|$)",
-            r"urb\.\s+([\wáéíóúñÁÉÍÓÚÑ][^,.\n]{2,30}?)(?=\s*[,.\n]|$)",
-            r"zona\s+([\wáéíóúñÁÉÍÓÚÑ][^,.\n]{2,25}?)(?=\s*[,.\n]|$)",
-            r"barrio\s+(?:de\s+)?([\wáéíóúñÁÉÍÓÚÑ][^,.\n]{2,25}?)(?=\s*[,.\n]|$)",
-        ]
-        for pattern in zone_patterns:
-            m = re.search(pattern, raw_lower)
-            if m:
-                zona = m.group(1).strip().title()
-                stopwords = {"la", "el", "los", "las", "un", "una", "del", "de"}
-                if len(zona) > 2 and zona.lower() not in stopwords:
-                    suggestions["barrio"] = (zona, f"Detectado: «{m.group().strip()}»")
-                    break
+        found = _buscar_barrio(prop.titulo or "", prop.descripcion or "")
+        if found:
+            zona, fragmento = found
+            suggestions["barrio"] = (zona, f"Detectado: «{fragmento}»")
 
     # ── Zona canónica ─────────────────────────────────────────────────────
     # Se sugiere revisión cuando la confianza NO es 'exacta':
@@ -170,30 +175,30 @@ def extract_suggestions(prop) -> Dict[str, Suggestion]:
     return suggestions
 
 
+# Zone cue words ("urbanización X", "zona X", "barrio de X"); what follows is only
+# a candidate, it must resolve to the zone catalogue to be accepted.
+_ZONE_CUE_RE = re.compile(
+    r"\b(?:urbanizaci[oó]n|urb\.|zona|barrio(?:\s+de)?)\s+([^,.;\n]{2,40})"
+)
+
+
+def _buscar_barrio(titulo: str, descripcion: str) -> Optional[Tuple[str, str]]:
+    """(canonical zone, matched text) for a cue phrase that hits the catalogue, else None."""
+    raw = " ".join(filter(None, [titulo, descripcion]))
+    for m in _ZONE_CUE_RE.finditer(raw.lower()):
+        match = normalizar_zona(barrio=m.group(1))
+        if match.zona and match.confianza == CONFIANZA_EXACTA:
+            return match.zona, m.group().strip()
+    return None
+
+
 def extract_barrio_from_text(titulo: str, descripcion: str) -> Optional[str]:
     """
-    Extract barrio/zona from free text (titulo + descripcion).
-    Returns cleaned string or None. Does not require a DB object.
+    Extract the barrio/zona from free text (titulo + descripcion).
+
+    Only zones from the catalogue (zonas_elpuerto.yaml) are returned, by their
+    canonical name; generic phrases ("zona residencial tranquila") yield None.
+    Does not require a DB object.
     """
-    titulo = titulo or ""
-    descripcion = descripcion or ""
-    raw = " ".join(filter(None, [titulo, descripcion]))
-    if not raw:
-        return None
-
-    raw_lower = raw.lower()
-    zone_patterns = [
-        r"urbanizaci[oó]n\s+([\wáéíóúñÁÉÍÓÚÑ][^,.\n]{2,30}?)(?=\s*[,.\n]|$)",
-        r"urb\.\s+([\wáéíóúñÁÉÍÓÚÑ][^,.\n]{2,30}?)(?=\s*[,.\n]|$)",
-        r"zona\s+([\wáéíóúñÁÉÍÓÚÑ][^,.\n]{2,25}?)(?=\s*[,.\n]|$)",
-        r"barrio\s+(?:de\s+)?([\wáéíóúñÁÉÍÓÚÑ][^,.\n]{2,25}?)(?=\s*[,.\n]|$)",
-    ]
-    stopwords = {"la", "el", "los", "las", "un", "una", "del", "de"}
-    for pattern in zone_patterns:
-        m = re.search(pattern, raw_lower)
-        if m:
-            zona = m.group(1).strip().title()
-            if len(zona) > 2 and zona.lower() not in stopwords:
-                return zona
-
-    return None
+    found = _buscar_barrio(titulo or "", descripcion or "")
+    return found[0] if found else None

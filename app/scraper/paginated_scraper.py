@@ -23,6 +23,11 @@ from db.models import Fuente, Propiedad, PrecioHistorico
 from db.database import UbicacionAproximadaCRUD, ZonaPoligonoCRUD
 
 
+# Hard cap when neither the caller nor the fuente config sets max_pages, so a
+# site that ignores an out-of-range `pag` cannot loop the scheduler forever.
+DEFAULT_MAX_PAGES = 50
+
+
 class PaginatedScraper:
     """Scraper that handles pagination and smart deduplication."""
 
@@ -64,10 +69,11 @@ class PaginatedScraper:
         Args:
             fuente: Source configuration
             results_per_page: Number of results per page (res parameter, default 48)
-            max_pages: Maximum pages to scrape (None = all)
+            max_pages: Maximum pages to scrape (None/0 = DEFAULT_MAX_PAGES)
 
         Returns:
-            Stats dictionary with results
+            Stats dictionary with results. ``stats["error"]`` is set when a page
+            fetch fails or page 1 yields no listings (partial results are kept).
         """
         stats = {
             "fuente_id": fuente.id,
@@ -77,6 +83,12 @@ class PaginatedScraper:
             "errores": 0,
             "paginas_procesadas": 0,
             "urls_encontradas": 0,
+            # Per-reason skip counters (always present, even when 0)
+            "filtradas_municipio": 0,
+            "alquileres": 0,
+            "garajes": 0,
+            "vendidas": 0,
+            "detalle_fallido": 0,
         }
 
         # Load config from fuente.notas if available
@@ -97,13 +109,16 @@ class PaginatedScraper:
         # Config max_pages overrides the parameter
         if fuente_config.max_pages is not None:
             max_pages = fuente_config.max_pages
+        if not max_pages or max_pages < 0:
+            max_pages = DEFAULT_MAX_PAGES
 
         try:
             page = 1
             consecutive_empty_pages = 0
+            seen_urls = set()
 
             while True:
-                if max_pages and page > max_pages:
+                if page > max_pages:
                     self.logger.info(f"Reached max pages limit: {max_pages}")
                     break
 
@@ -120,7 +135,8 @@ class PaginatedScraper:
                     separator = "&" if "?" in fuente.url else "?"
                     page_url = f"{fuente.url}{separator}{pagination_param}={pagination_value}"
                 if fuente_config.use_results_per_page:
-                    page_url += f"&res={results_per_page}"
+                    res_separator = "&" if "?" in page_url else "?"
+                    page_url += f"{res_separator}res={results_per_page}"
 
                 # Scrape the page
                 try:
@@ -137,7 +153,16 @@ class PaginatedScraper:
                     urls_on_page = await self.generic_scraper.scrape(temp_fuente)
                 except Exception as e:
                     self.logger.error(f"Error scraping page {page}: {e}")
+                    # Keep partial results but make the failed run visible to callers
+                    stats["error"] = f"Error scraping page {page}: {e}"
                     break  # Stop pagination if we can't scrape
+
+                if not urls_on_page and page == 1:
+                    # Selector rot / site redesign / blocked page look exactly like "no
+                    # listings"; a source's first page is never legitimately empty.
+                    self.logger.error(f"Page 1 returned no listings for {fuente.nombre}")
+                    stats["error"] = "Page 1 returned no listings (selector broken or site changed?)"
+                    break
 
                 if not urls_on_page:
                     consecutive_empty_pages += 1
@@ -147,6 +172,14 @@ class PaginatedScraper:
                     self.logger.info(f"Page {page} empty, trying next page...")
                     page += 1
                     continue
+
+                # A page with no URL we have not already seen means the site is repeating
+                # itself (e.g. ignores an out-of-range `pag`): stop instead of looping.
+                page_urls = {raw.get("url_original") for raw in urls_on_page}
+                if page_urls <= seen_urls:
+                    self.logger.warning(f"Page {page} has no new URLs, stopping pagination")
+                    break
+                seen_urls |= page_urls
 
                 # Reset empty page counter
                 consecutive_empty_pages = 0
@@ -183,6 +216,7 @@ class PaginatedScraper:
                                 if not all(w in titulo_norm for w in filter_words):
                                     self.logger.info(f"⏭️ Municipio en listado no coincide ({titulo_listing[:50]}), se omite")
                                     stats["filtradas"] = stats.get("filtradas", 0) + 1
+                                    stats["filtradas_municipio"] += 1
                                     continue
 
                         # Canonicalize URL if the detail scraper supports it (e.g. puertopiso
@@ -222,8 +256,9 @@ class PaginatedScraper:
                                     self.db_session.add(existing)
                                     self.db_session.commit()
                                     self.logger.info(f"🔄 Re-enriquecida: {existing.titulo[:50]} {existing.precio}€")
-                                except Exception:
-                                    pass
+                                except Exception as e:
+                                    self.logger.warning(f"Re-enrich failed for {url_original[:60]}: {type(e).__name__}: {e}")
+                                    stats["detalle_fallido"] += 1
 
                             # For active duplicates older than 3 days, re-check detail page
                             if existing.activa and existing.fecha_scraping:
@@ -236,7 +271,7 @@ class PaginatedScraper:
                                         # deactivates immediately, EMPTY only deactivates on the
                                         # 2nd confirming strike, ERROR is unreachable here (this
                                         # classifier never returns it — fetch failures are caught
-                                        # by the `except Exception: pass` below, untouched).
+                                        # by the `except Exception` below, which counts them in `detalle_fallido`).
                                         outcome = classify_check_outcome(details)
                                         estado = details.get("estado", "No disponible") if outcome is CheckOutcome.GONE else None
                                         result = apply_check_outcome(self.db_session, existing, outcome, estado=estado)
@@ -268,8 +303,9 @@ class PaginatedScraper:
                                                     )
                                                 else:
                                                     self.logger.info(f"📈 Subida precio: {existing.titulo[:50]} {precio_anterior:.0f}€ → {nuevo_precio:.0f}€")
-                                    except Exception:
-                                        pass
+                                    except Exception as e:
+                                        self.logger.warning(f"3-day re-check failed for {url_original[:60]}: {type(e).__name__}: {e}")
+                                        stats["detalle_fallido"] += 1
                             stats["duplicadas"] += 1
                             continue
 
@@ -320,9 +356,8 @@ class PaginatedScraper:
                             stats["garajes"] = stats.get("garajes", 0) + 1
                             continue
 
-                        # Ensure tipo_operacion is set for venta
-                        if not operacion:
-                            raw_data["tipo_operacion"] = "venta"
+                        # Always persist an explicit tipo_operacion (detector-confirmed or default venta)
+                        raw_data["tipo_operacion"] = operacion or "venta"
 
                         # Skip properties from wrong municipality
                         if fuente_config.municipio_filter:
@@ -330,6 +365,7 @@ class PaginatedScraper:
                             if prop_muni and prop_muni.lower() != fuente_config.municipio_filter.lower():
                                 self.logger.info(f"⏭️ Municipio diferente ({prop_muni}), se omite: {url_original[:60]}")
                                 stats["filtradas"] = stats.get("filtradas", 0) + 1
+                                stats["filtradas_municipio"] += 1
                                 continue
 
                         # Normalize and save
@@ -368,12 +404,15 @@ class PaginatedScraper:
                     except CatalogoInvalidoError:
                         raise
                     except Exception as e:
-                        self.logger.warning(f"Error processing property: {e}")
+                        self.logger.warning(
+                            f"Error processing property {(raw_data.get('url_original') or '?')[:60]}: "
+                            f"{type(e).__name__}: {e}"
+                        )
                         stats["errores"] += 1
                         try:
                             self.db_session.rollback()
-                        except Exception:
-                            pass
+                        except Exception as rollback_error:
+                            self.logger.warning(f"Rollback failed: {rollback_error}")
                         continue
 
                 stats["paginas_procesadas"] += 1

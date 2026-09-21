@@ -28,3 +28,28 @@ def test_returns_none_when_no_zona():
 def test_returns_none_for_empty_input():
     assert extract_barrio_from_text("", "") is None
     assert extract_barrio_from_text(None, None) is None
+
+
+# ── Generic phrases must not become a barrio (#49) ───────────────────────────
+
+import pytest
+
+
+@pytest.mark.parametrize("titulo,descripcion", [
+    ("Piso reformado", "Piso reformado en zona residencial tranquila, cerca de todo"),
+    ("Piso con terraza", "Zona comun con piscina."),
+    ("Piso 3 dorm", "urbanizacion cerrada con piscina, 3 dorm"),
+    ("Casa", "Barrio con mucho ambiente y todos los servicios."),
+])
+def test_generic_phrases_are_not_barrio(titulo, descripcion):
+    assert extract_barrio_from_text(titulo, descripcion) is None
+
+
+def test_returns_canonical_catalogue_name():
+    result = extract_barrio_from_text("Piso", "Piso en zona el pinar alto, con vistas.")
+    assert result == "Pinar Alto"
+
+
+def test_catalogue_alias_with_trailing_words():
+    result = extract_barrio_from_text("Piso", "Vivienda en urbanización Las Redes con piscina comunitaria")
+    assert result == "Las Redes"
