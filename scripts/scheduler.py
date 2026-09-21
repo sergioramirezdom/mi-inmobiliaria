@@ -36,6 +36,11 @@ logger = logging.getLogger(__name__)
 
 def _exit_on_failure(summary, label):
     """Exit 1 when the cycle failed, so CI (GitHub Actions) shows it as failed."""
+    if summary.notifications_failed:
+        logger.error(
+            f"❌ {label}: {summary.notifications_failed} Telegram message(s) "
+            "could not be delivered"
+        )
     if summary.ok:
         return
     for failure in summary.failed:

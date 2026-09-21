@@ -38,13 +38,16 @@ def _run(tmp_path, argv, prelude=""):
     )
 
 
-def _stub(method, *, failed=(), fatal=None):
+def _stub(method, *, failed=(), fatal=None, notifications_failed=0):
     return f"""
         from app.scraper.run_stats import RunSummary
         from app.scraper.scheduler import ScraperScheduler
 
         async def _stub(self, *a, **k):
-            return RunSummary(failed=list({list(failed)!r}), fatal_error={fatal!r})
+            return RunSummary(
+                failed=list({list(failed)!r}), fatal_error={fatal!r},
+                notifications_failed={notifications_failed!r},
+            )
 
         ScraperScheduler.{method} = _stub
     """
@@ -83,3 +86,10 @@ def test_clean_run_exits_zero(tmp_path, argv, method):
     result = _run(tmp_path, argv, _stub(method))
 
     assert result.returncode == 0, result.stderr[-2000:]
+
+
+def test_undelivered_telegram_messages_are_logged_but_do_not_fail_the_run(tmp_path):
+    result = _run(tmp_path, ["--once"], _stub("check_and_scrape", notifications_failed=3))
+
+    assert result.returncode == 0, result.stderr[-2000:]
+    assert "3 Telegram message(s) could not be delivered" in result.stderr

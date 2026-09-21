@@ -12,6 +12,8 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+from types import SimpleNamespace
+
 import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "app"))
@@ -19,6 +21,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "app"))
 from db.models import Fuente, RegistroEjecucion  # noqa: E402
 from admin import manual_run as manual_run_mod  # noqa: E402
 from admin.manual_run import run_manual_scrape, run_manual_sold_check  # noqa: E402
+import scraper.scheduler as sched_mod  # noqa: E402
 
 
 class FakeSession:
@@ -37,6 +40,41 @@ class FakeSession:
 
     def refresh(self, obj):
         pass
+
+    def exec(self, stmt):
+        return SimpleNamespace(all=lambda: [])
+
+
+class FakeNotifier:
+    """Stands in for TelegramNotifier: nothing here may reach the real API."""
+
+    chat_id = "GLOBAL_CHAT"
+    failed_count = 0
+
+    def __init__(self):
+        self.drops = []
+        self.sold = []
+
+    async def send_price_drop_alerts(self, bajadas, fuente=None, source_label=None, chat_id=None):
+        self.drops.append(dict(bajadas=bajadas, chat_id=chat_id))
+        return True
+
+    async def send_sold_properties_alert(self, vendidas):
+        self.sold.append(vendidas)
+        return True
+
+    async def send_scraping_summary(self, *args, **kwargs):
+        return True
+
+    async def send_no_matches_summary(self, *args, **kwargs):
+        return True
+
+
+@pytest.fixture(autouse=True)
+def notifier(monkeypatch):
+    fake = FakeNotifier()
+    monkeypatch.setattr(sched_mod, "TelegramNotifier", lambda: fake)
+    return fake
 
 
 class StubRunner:
@@ -286,6 +324,50 @@ async def test_run_manual_sold_check_delegates_scoped_and_writes_no_extra_row(mo
     assert stats["activas"] == 8
     assert stats["sin_datos"] == 1
     assert isinstance(stats["log_lines"], list)
+
+
+_DROP = {"titulo": "Piso", "url": "u", "precio_anterior": 200000,
+         "precio_nuevo": 180000, "bajada_pct": 10, "propiedad_id": 1, "favorita": False}
+
+
+@pytest.mark.asyncio
+async def test_run_manual_scrape_notifies_price_drops(notifier):
+    runner = StubRunner(stats={"nuevas": 0, "duplicadas": 1, "errores": 0,
+                               "bajadas_precio": [_DROP]})
+
+    result = await run_manual_scrape(FakeSession(), _fuente(), runner=runner)
+
+    assert [d["bajadas"] for d in notifier.drops] == [[_DROP]]
+    assert result["notificaciones_fallidas"] == 0
+
+
+@pytest.mark.asyncio
+async def test_run_manual_scrape_survives_a_notification_failure(notifier, monkeypatch):
+    async def boom(*args, **kwargs):
+        raise RuntimeError("telegram down")
+
+    monkeypatch.setattr(notifier, "send_price_drop_alerts", boom)
+    runner = StubRunner(stats={"nuevas": 0, "duplicadas": 1, "errores": 0,
+                               "bajadas_precio": [_DROP]})
+
+    result = await run_manual_scrape(FakeSession(), _fuente(), runner=runner)
+
+    assert result["duplicadas"] == 1
+
+
+@pytest.mark.asyncio
+async def test_run_manual_sold_check_notifies_sold_and_price_drops(monkeypatch, notifier):
+    vendida = {"titulo": "V", "url": "u0", "precio": 1, "estado": "Vendida"}
+
+    async def fake_check(sess, *args, **kwargs):
+        return {"vendidas_lista": [vendida], "bajadas_precio": [_DROP]}
+
+    monkeypatch.setattr(manual_run_mod, "check_sold_properties", fake_check)
+
+    await run_manual_sold_check(FakeSession(), _fuente())
+
+    assert notifier.sold == [[vendida]]
+    assert [d["bajadas"] for d in notifier.drops] == [[_DROP]]
 
 
 def test_manual_run_module_has_no_streamlit_import():
