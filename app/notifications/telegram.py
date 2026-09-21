@@ -1,5 +1,6 @@
 """Telegram notifications for property alerts."""
 
+import asyncio
 import os
 import logging
 from typing import List, Optional
@@ -18,6 +19,35 @@ from config import settings
 
 logger = logging.getLogger(__name__)
 
+_sleep = asyncio.sleep  # indirection so tests never really wait between retries
+
+# Delivery policy: transient failures (429, 5xx, timeouts/network errors) are
+# retried with exponential backoff; a 429 waits the server's retry_after, unless
+# that is longer than MAX_RETRY_AFTER_SECONDS (then the send fails immediately).
+MAX_ATTEMPTS = 3
+BACKOFF_BASE_SECONDS = 1.0
+MAX_RETRY_AFTER_SECONDS = 30
+
+
+def _error_description(response: httpx.Response) -> str:
+    """Telegram's error ``description`` (falls back to the raw body)."""
+    try:
+        return str(response.json().get("description", ""))
+    except Exception:
+        return response.text
+
+
+def _retry_after(response: httpx.Response) -> Optional[float]:
+    """Seconds Telegram asks us to wait on a 429 (body parameter or header)."""
+    try:
+        value = response.json()["parameters"]["retry_after"]
+    except Exception:
+        value = response.headers.get("Retry-After")
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
 
 class TelegramNotifier:
     """Send notifications via Telegram bot."""
@@ -27,6 +57,10 @@ class TelegramNotifier:
         self.token = settings.TELEGRAM_TOKEN
         self.chat_id = settings.TELEGRAM_CHAT_ID
         self.api_url = f"https://api.telegram.org/bot{self.token}"
+        # Delivery results, so callers can report failed sends (a failed send
+        # is otherwise only a False return value).
+        self.sent_count = 0
+        self.failed_count = 0
 
         if not self.token or not self.chat_id:
             logger.warning(
@@ -38,13 +72,19 @@ class TelegramNotifier:
         """
         Send a message to Telegram.
 
+        Markdown that Telegram cannot parse (a raw ``_``/``*``/``[`` in a
+        scraped title) is re-sent as plain text; transient failures are
+        retried with backoff (see ``MAX_ATTEMPTS``). Every outcome is counted
+        in ``sent_count``/``failed_count`` and a final failure is logged at
+        ERROR.
+
         Args:
             text: Message text (supports Markdown)
             chat_id: Optional chat id override. Defaults to the global
                 ``settings.TELEGRAM_CHAT_ID`` when not provided.
 
         Returns:
-            True if successful, False otherwise
+            True if delivered, False otherwise
         """
         target_chat_id = chat_id or self.chat_id
 
@@ -52,30 +92,72 @@ class TelegramNotifier:
             logger.warning("Cannot send Telegram message: credentials not configured")
             return False
 
-        try:
-            async with httpx.AsyncClient() as client:
-                response = await client.post(
-                    f"{self.api_url}/sendMessage",
-                    json={
-                        "chat_id": target_chat_id,
-                        "text": text,
-                        "parse_mode": "Markdown",
-                    },
-                    timeout=10,
-                )
+        delivered = await self._deliver(text, target_chat_id)
+        if delivered:
+            self.sent_count += 1
+        else:
+            self.failed_count += 1
+        return delivered
 
-                if response.status_code == 200:
-                    logger.debug("✓ Telegram message sent")
-                    return True
+    async def _deliver(self, text: str, chat_id: str) -> bool:
+        """POST the message, retrying transient failures (never logs the token)."""
+        payload = {"chat_id": chat_id, "text": text, "parse_mode": "Markdown"}
+        attempt = 0
+
+        async with httpx.AsyncClient() as client:
+            while True:
+                attempt += 1
+                delay: Optional[float] = BACKOFF_BASE_SECONDS * 2 ** (attempt - 1)
+                try:
+                    response = await client.post(
+                        f"{self.api_url}/sendMessage", json=payload, timeout=10
+                    )
+                except httpx.TransportError as e:  # timeouts and network errors
+                    reason = f"{type(e).__name__}: {e}"
+                except Exception as e:
+                    logger.error(f"Error sending Telegram message to {chat_id}: {e}")
+                    return False
                 else:
-                    logger.warning(
-                        f"Telegram API error: {response.status_code} - {response.text}"
+                    if response.status_code == 200:
+                        logger.debug("✓ Telegram message sent")
+                        return True
+
+                    description = _error_description(response)
+                    reason = f"HTTP {response.status_code} - {description}"
+
+                    if (
+                        response.status_code == 400
+                        and "parse_mode" in payload
+                        and "parse" in description.lower()
+                    ):
+                        # Unparseable Markdown: still deliver, as plain text.
+                        logger.warning(
+                            f"Telegram could not parse Markdown ({description}); "
+                            "re-sending as plain text"
+                        )
+                        del payload["parse_mode"]
+                        attempt -= 1
+                        continue
+
+                    if response.status_code == 429:
+                        delay = _retry_after(response) or delay
+                        if delay > MAX_RETRY_AFTER_SECONDS:
+                            delay = None
+                    elif response.status_code < 500:
+                        delay = None  # 4xx that a retry cannot fix
+
+                if delay is None or attempt >= MAX_ATTEMPTS:
+                    logger.error(
+                        f"Telegram delivery to {chat_id} failed after "
+                        f"{attempt} attempt(s): {reason}"
                     )
                     return False
 
-        except Exception as e:
-            logger.error(f"Error sending Telegram message: {e}")
-            return False
+                logger.warning(
+                    f"Telegram send attempt {attempt} failed ({reason}); "
+                    f"retrying in {delay:g}s"
+                )
+                await _sleep(delay)
 
     async def send_test_message(self) -> bool:
         """Send a test message."""

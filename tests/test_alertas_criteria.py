@@ -37,3 +37,17 @@ def test_build_criteria_single_zone():
 def test_build_criteria_empty_list_is_none():
     criteria = _call([])
     assert criteria.get("barrio") is None
+
+
+def test_build_criteria_carries_tipo_operacion():
+    criteria = build_criteria(
+        precio_min=0, precio_max=0, m2_min=0, m2_max=0, habitaciones=0, banos=0,
+        barrio=[], tipo_propiedad=None, estado=None, amenidades=[],
+        ascensor=False, garaje=False, terraza=False, piscina=False,
+        tipo_operacion="venta",
+    )
+    assert criteria["tipo_operacion"] == "venta"
+
+
+def test_build_criteria_tipo_operacion_is_optional():
+    assert "tipo_operacion" not in _call([])

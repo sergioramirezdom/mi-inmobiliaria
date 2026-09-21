@@ -26,6 +26,7 @@ TIPO_ALERTA_LABELS = {
 st.set_page_config(page_title="Gestión de Alertas", page_icon="🔔", layout="wide")
 
 TIPOS_PROPIEDAD = ["", "Piso", "Apartamento", "Casa", "Dúplex", "Estudio", "Local", "Parcela", "Garaje"]
+OPERACIONES = ["", "venta", "alquiler"]
 ESTADOS = ["", "Nueva", "Buen estado", "Para reformar", "Reformado", "En construcción"]
 AMENIDADES_OPTS = ["Ascensor", "Garaje", "Piscina", "Terraza", "Balcón", "Aire acondicionado",
                    "Amueblado", "Trastero", "Patio", "Calefacción"]
@@ -44,7 +45,7 @@ def get_distinct_zonas_cached() -> list[str]:
 
 def build_criteria(precio_min, precio_max, m2_min, m2_max, habitaciones, banos,
                    barrio, tipo_propiedad, estado, amenidades,
-                   ascensor, garaje, terraza, piscina):
+                   ascensor, garaje, terraza, piscina, tipo_operacion=None):
     """Build criteria dict from form values."""
     return FilterMatcher.create_criteria_dict(
         precio_min=precio_min if precio_min > 0 else None,
@@ -55,6 +56,7 @@ def build_criteria(precio_min, precio_max, m2_min, m2_max, habitaciones, banos,
         banos=banos if banos > 0 else None,
         barrio=", ".join(z.strip() for z in barrio if z.strip()) if barrio else None,
         tipo_propiedad=tipo_propiedad if tipo_propiedad else None,
+        tipo_operacion=tipo_operacion if tipo_operacion else None,
         estado=estado if estado else None,
         amenidades=",".join(amenidades) if amenidades else None,
     )
@@ -100,6 +102,11 @@ def criteria_form(prefix: str, defaults: dict = None):
     with col_h2:
         banos = st.number_input("Mín. baños", min_value=0, max_value=5,
                                 value=int(d.get("banos", 0)), key=f"{prefix}_ban")
+
+    operacion_val = d.get("tipo_operacion", "")
+    operacion_idx = OPERACIONES.index(operacion_val) if operacion_val in OPERACIONES else 0
+    tipo_operacion = st.selectbox("Operación", OPERACIONES, index=operacion_idx,
+                                  key=f"{prefix}_operacion")
 
     col_t1, col_t2 = st.columns(2)
     with col_t1:
@@ -147,7 +154,7 @@ def criteria_form(prefix: str, defaults: dict = None):
     return dict(precio_min=precio_min, precio_max=precio_max, m2_min=m2_min, m2_max=m2_max,
                 habitaciones=habitaciones, banos=banos, barrio=barrio, tipo_propiedad=tipo_propiedad,
                 estado=estado, amenidades=amenidades, ascensor=ascensor, garaje=garaje,
-                terraza=terraza, piscina=piscina)
+                terraza=terraza, piscina=piscina, tipo_operacion=tipo_operacion)
 
 
 @st.dialog("✏️ Editar alerta", width="large")

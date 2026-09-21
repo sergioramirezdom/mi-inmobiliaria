@@ -18,6 +18,7 @@ Design (sdd/scraper-admin-console/design, decisions D3 / D2):
 """
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 from typing import Any, Optional
 from uuid import uuid4
@@ -27,7 +28,10 @@ from db.database import RegistroEjecucionCRUD
 from db.models import Fuente, RegistroEjecucion
 from scraper.run_stats import normalize_run_stats
 from scraper.runner import ScraperRunner
+from scraper.scheduler import ScraperScheduler
 from scraper.sold_checker import check_sold_properties
+
+logger = logging.getLogger(__name__)
 
 MANUAL_RUN_ID_PREFIX = "manual-"
 
@@ -109,7 +113,16 @@ async def run_manual_scrape(
         except Exception:  # noqa: BLE001 — a log-write failure must not mask stats
             pass
 
+        # The DB rows are already updated, so the scheduler will never see these
+        # changes again: alert now, exactly as a scheduled run would.
+        scheduler = ScraperScheduler()
+        try:
+            await scheduler.notify_scrape_results(fuente, stats, session)
+        except Exception as exc:  # noqa: BLE001 — never mask the run's stats
+            logger.error(f"Error sending manual-run notifications: {exc}", exc_info=True)
+
     result = dict(stats)
+    result["notificaciones_fallidas"] = scheduler.notification_failures
     result["run_id"] = run_id
     result["log_lines"] = logs.lines()
     return result
@@ -137,6 +150,14 @@ async def run_manual_sold_check(
             session, limit=limit, fuente_id=fuente.id
         )
 
+        # Same reason as the manual scrape: the rows are already updated.
+        scheduler = ScraperScheduler()
+        try:
+            await scheduler.notify_sold_results(stats, session)
+        except Exception as exc:  # noqa: BLE001 — never mask the run's stats
+            logger.error(f"Error sending manual sold-check notifications: {exc}", exc_info=True)
+
     result = dict(stats)
+    result["notificaciones_fallidas"] = scheduler.notification_failures
     result["log_lines"] = logs.lines()
     return result

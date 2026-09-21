@@ -35,6 +35,9 @@ class RunSummary:
 
     failed: List[str] = field(default_factory=list)  # "<fuente>: <error>"
     fatal_error: Optional[str] = None  # top-level exception (e.g. DB unreachable)
+    # Telegram messages that could not be delivered this cycle. Reported, but
+    # it does not affect `ok`: a Telegram outage must not fail the scrape job.
+    notifications_failed: int = 0
 
     @property
     def ok(self) -> bool:

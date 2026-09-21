@@ -10,7 +10,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from sqlmodel import Session, select
+from sqlmodel import Session, or_, select
 
 from db.database import engine, RegistroEjecucionCRUD
 from db.models import Fuente, Propiedad, FiltroAlerta, RegistroEjecucion
@@ -23,9 +23,13 @@ from notifications.alert_routing import (
     resolve_chat_id,
     filter_favorite_drops,
     TIPO_BAJADAS_FAVORITAS,
+    TIPO_NUEVAS,
 )
 
 logger = logging.getLogger(__name__)
+
+# Header label of the global price-drop message sent by the sold check.
+SOLD_CHECK_DROPS_LABEL = "comprobación de bajas"
 
 
 class ScraperScheduler:
@@ -42,6 +46,19 @@ class ScraperScheduler:
         self.check_interval_minutes = check_interval_minutes
         self.results_per_page = results_per_page
         self.logger = logging.getLogger(__name__)
+        self._notifiers: List[TelegramNotifier] = []
+
+    def _new_notifier(self) -> TelegramNotifier:
+        """Create a notifier whose delivery failures count towards this cycle."""
+        notifier = TelegramNotifier()
+        if not any(n is notifier for n in self._notifiers):
+            self._notifiers.append(notifier)
+        return notifier
+
+    @property
+    def notification_failures(self) -> int:
+        """Telegram messages that could not be delivered since the last cycle start."""
+        return sum(getattr(n, "failed_count", 0) for n in self._notifiers)
 
     async def start_daemon(self) -> None:
         """Start background scheduler daemon (runs continuously)."""
@@ -66,6 +83,7 @@ class ScraperScheduler:
         """
         run_id = str(uuid.uuid4())
         summary = RunSummary()
+        self._notifiers = []
         try:
             with Session(engine) as session:
                 # Get all active fuentes
@@ -74,7 +92,7 @@ class ScraperScheduler:
 
                 if not fuentes:
                     self.logger.debug("No active fuentes found")
-                    return summary
+                    return summary  # nothing was notified
 
                 self.logger.debug(f"🔍 Checking {len(fuentes)} active fuente(s)...")
 
@@ -93,11 +111,13 @@ class ScraperScheduler:
         except Exception as e:
             self.logger.error(f"Error in check_and_scrape: {e}", exc_info=True)
             summary.fatal_error = str(e)
+        summary.notifications_failed = self.notification_failures
         return summary
 
     async def run_sold_check(self) -> RunSummary:
         """Check all active properties and mark sold ones as inactive. Sends Telegram alert."""
         summary = RunSummary()
+        self._notifiers = []
         try:
             with Session(engine) as session:
                 stats = await check_sold_properties(session)
@@ -105,29 +125,46 @@ class ScraperScheduler:
             for fuente_id, motivo in stats.get("fuentes_fallidas", {}).items():
                 summary.failed.append(f"fuente {fuente_id}: {motivo}")
 
-            vendidas = stats.get("vendidas_lista", [])
-            if vendidas:
-                notifier = TelegramNotifier()
-                await notifier.send_sold_properties_alert(vendidas)
-
-            # The sold check also detects price drops (previously discarded).
-            # Fan out the favourite subset to bajadas_favoritas alerts with a
-            # generic source label (no fuente scope on this path).
-            bajadas = stats.get("bajadas_precio", [])
-            if bajadas:
-                with Session(engine) as session:
-                    await self._send_favorite_drop_alerts(
-                        bajadas, session, source_label="favoritas"
-                    )
+            with Session(engine) as session:
+                await self.notify_sold_results(stats, session)
         except Exception as e:
             self.logger.error(f"❌ Error en sold check: {e}", exc_info=True)
             summary.fatal_error = str(e)
+        summary.notifications_failed = self.notification_failures
         return summary
+
+    async def notify_sold_results(self, stats: dict, session: Session) -> None:
+        """Send the alerts for one sold-check run: newly sold/reserved listings
+        and price drops. Each send is isolated, so one failing message never
+        skips the others. Shared with the manual (Streamlit) sold check.
+        """
+        vendidas = stats.get("vendidas_lista", [])
+        if vendidas:
+            try:
+                await self._new_notifier().send_sold_properties_alert(vendidas)
+            except Exception as e:
+                self.logger.error(f"Error sending sold alert: {e}", exc_info=True)
+
+        # The sold check also detects price drops. Like the scrape path, every
+        # drop goes to the global chat (there is no fuente scope here) and the
+        # favourite subset is fanned out to bajadas_favoritas alerts.
+        bajadas = stats.get("bajadas_precio", [])
+        if bajadas:
+            try:
+                await self._new_notifier().send_price_drop_alerts(
+                    bajadas, source_label=SOLD_CHECK_DROPS_LABEL
+                )
+            except Exception as e:
+                self.logger.error(f"Error sending price-drop alert: {e}", exc_info=True)
+            await self._send_favorite_drop_alerts(
+                bajadas, session, source_label="favoritas"
+            )
 
     async def force_scrape_all(self) -> RunSummary:
         """Force scraping of all active fuentes regardless of intervalo_horas."""
         run_id = str(uuid.uuid4())
         summary = RunSummary()
+        self._notifiers = []
         try:
             with Session(engine) as session:
                 stmt = select(Fuente).where(Fuente.activa == True)
@@ -146,6 +183,7 @@ class ScraperScheduler:
         except Exception as e:
             self.logger.error(f"Error in force_scrape_all: {e}", exc_info=True)
             summary.fatal_error = str(e)
+        summary.notifications_failed = self.notification_failures
         return summary
 
     async def _scrape_fuente(self, fuente: Fuente, run_id: Optional[str] = None) -> Optional[str]:
@@ -216,26 +254,37 @@ class ScraperScheduler:
                 except Exception as e:
                     self.logger.warning(f"⚠️ No se pudo escribir RegistroEjecucion: {e}")
 
-                # Send notifications for new properties
-                if nuevas > 0:
-                    self.logger.info(f"🎯 {fuente_nombre}: {nuevas} nuevas propiedades encontradas!")
-                    await self._send_notifications(fuente, stats, session)
-
-                # Send price drop alerts
-                bajadas = stats.get("bajadas_precio", [])
-                if bajadas:
-                    self.logger.info(f"📉 {fuente_nombre}: {len(bajadas)} bajadas de precio detectadas")
-                    notifier = TelegramNotifier()
-                    await notifier.send_price_drop_alerts(bajadas, fuente)
-                    # Additionally fan out favourite drops to bajadas_favoritas
-                    # alerts (intentional duplication with the global send above).
-                    await self._send_favorite_drop_alerts(bajadas, session, fuente=fuente)
+                await self.notify_scrape_results(fuente, stats, session)
 
                 return error
 
         except Exception as e:
             self.logger.error(f"❌ Error scraping {fuente_nombre}: {e}", exc_info=True)
             return str(e)
+
+    async def notify_scrape_results(
+        self, fuente: Fuente, stats: dict, session: Session
+    ) -> None:
+        """Send the alerts for one scrape run: new listings and price drops
+        (all of them to the global chat, favourites to their own alerts).
+        Shared with the manual (Streamlit) scrape.
+        """
+        fuente_nombre = fuente.nombre
+        nuevas = stats.get("nuevas", 0)
+        if nuevas > 0:
+            self.logger.info(f"🎯 {fuente_nombre}: {nuevas} nuevas propiedades encontradas!")
+            await self._send_notifications(fuente, stats, session)
+
+        bajadas = stats.get("bajadas_precio", [])
+        if bajadas:
+            self.logger.info(f"📉 {fuente_nombre}: {len(bajadas)} bajadas de precio detectadas")
+            try:
+                await self._new_notifier().send_price_drop_alerts(bajadas, fuente)
+            except Exception as e:
+                self.logger.error(f"Error sending price-drop alert: {e}", exc_info=True)
+            # Additionally fan out favourite drops to bajadas_favoritas
+            # alerts (intentional duplication with the global send above).
+            await self._send_favorite_drop_alerts(bajadas, session, fuente=fuente)
 
     async def _send_favorite_drop_alerts(
         self,
@@ -263,7 +312,7 @@ class ScraperScheduler:
             if not alertas:
                 return
 
-            notifier = TelegramNotifier()
+            notifier = self._new_notifier()
             for filtro in alertas:
                 chat_id = resolve_chat_id(
                     getattr(filtro, "chat_id_telegram", None), notifier.chat_id
@@ -282,10 +331,17 @@ class ScraperScheduler:
     ) -> None:
         """Send Telegram notifications based on filters."""
         try:
-            notifier = TelegramNotifier()
+            notifier = self._new_notifier()
 
-            # Get all active filters
-            stmt = select(FiltroAlerta).where(FiltroAlerta.activo == True)
+            # Only "nuevas" alerts see new listings; bajadas_favoritas alerts
+            # are price-drop switches with no criteria.
+            stmt = select(FiltroAlerta).where(
+                FiltroAlerta.activo == True,  # noqa: E712
+                or_(
+                    FiltroAlerta.tipo_alerta == TIPO_NUEVAS,
+                    FiltroAlerta.tipo_alerta.is_(None),
+                ),
+            )
             filtros = session.exec(stmt).all()
 
             if not filtros:
@@ -310,7 +366,17 @@ class ScraperScheduler:
             # Apply filters and collect matches: list of (filtro, [propiedades])
             filtro_matches = []
             for filtro in filtros:
-                matches = FilterMatcher.get_matching_properties(nuevas_propiedades, filtro)
+                # One broken filter must not suppress the alerts of the others.
+                try:
+                    matches = FilterMatcher.get_matching_properties(
+                        nuevas_propiedades, filtro
+                    )
+                except Exception as e:
+                    self.logger.error(
+                        f"Filter '{filtro.nombre}' could not be evaluated: {e}",
+                        exc_info=True,
+                    )
+                    continue
                 if matches:
                     filtro_matches.append((filtro, matches))
                     self.logger.info(
