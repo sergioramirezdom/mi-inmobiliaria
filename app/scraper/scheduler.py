@@ -10,7 +10,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from sqlmodel import Session, select
+from sqlmodel import Session, or_, select
 
 from db.database import engine, RegistroEjecucionCRUD
 from db.models import Fuente, Propiedad, FiltroAlerta, RegistroEjecucion
@@ -23,6 +23,7 @@ from notifications.alert_routing import (
     resolve_chat_id,
     filter_favorite_drops,
     TIPO_BAJADAS_FAVORITAS,
+    TIPO_NUEVAS,
 )
 
 logger = logging.getLogger(__name__)
@@ -284,8 +285,15 @@ class ScraperScheduler:
         try:
             notifier = TelegramNotifier()
 
-            # Get all active filters
-            stmt = select(FiltroAlerta).where(FiltroAlerta.activo == True)
+            # Only "nuevas" alerts see new listings; bajadas_favoritas alerts
+            # are price-drop switches with no criteria.
+            stmt = select(FiltroAlerta).where(
+                FiltroAlerta.activo == True,  # noqa: E712
+                or_(
+                    FiltroAlerta.tipo_alerta == TIPO_NUEVAS,
+                    FiltroAlerta.tipo_alerta.is_(None),
+                ),
+            )
             filtros = session.exec(stmt).all()
 
             if not filtros:
@@ -310,7 +318,17 @@ class ScraperScheduler:
             # Apply filters and collect matches: list of (filtro, [propiedades])
             filtro_matches = []
             for filtro in filtros:
-                matches = FilterMatcher.get_matching_properties(nuevas_propiedades, filtro)
+                # One broken filter must not suppress the alerts of the others.
+                try:
+                    matches = FilterMatcher.get_matching_properties(
+                        nuevas_propiedades, filtro
+                    )
+                except Exception as e:
+                    self.logger.error(
+                        f"Filter '{filtro.nombre}' could not be evaluated: {e}",
+                        exc_info=True,
+                    )
+                    continue
                 if matches:
                     filtro_matches.append((filtro, matches))
                     self.logger.info(

@@ -10,6 +10,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from db.models import Propiedad, FiltroAlerta
+from .alert_routing import TIPO_BAJADAS_FAVORITAS
 
 logger = logging.getLogger(__name__)
 
@@ -19,12 +20,45 @@ class FilterMatcher:
 
     @staticmethod
     def parse_criteria(criteria_json: str) -> Dict[str, Any]:
-        """Parse criteria from JSON string."""
+        """Parse criteria from JSON string (lenient: for display, never raises).
+
+        Matching goes through ``_load_criteria`` instead, which fails closed.
+        """
         try:
-            return json.loads(criteria_json) if criteria_json else {}
+            data = json.loads(criteria_json) if criteria_json else {}
         except json.JSONDecodeError:
             logger.warning(f"Invalid JSON in criteria: {criteria_json}")
             return {}
+        return data if isinstance(data, dict) else {}
+
+    @staticmethod
+    def _load_criteria(filtro: FiltroAlerta) -> Optional[Dict[str, Any]]:
+        """Strictly load a filter's criteria; None means "unusable, match nothing".
+
+        Missing, blank, corrupt or non-object ``criterios_json`` is logged at
+        ERROR and reported as None. Only an explicit JSON object (``{}``
+        included: the UI's deliberate "no criteria" alert) is usable.
+        """
+        raw = filtro.criterios_json
+        if raw is None or not str(raw).strip():
+            logger.error(
+                f"Filter '{filtro.nombre}' has no criterios_json; it matches nothing"
+            )
+            return None
+        try:
+            data = json.loads(raw)
+        except (TypeError, ValueError):
+            logger.error(
+                f"Filter '{filtro.nombre}' has invalid criterios_json; it matches nothing"
+            )
+            return None
+        if not isinstance(data, dict):
+            logger.error(
+                f"Filter '{filtro.nombre}' criterios_json is not an object; "
+                "it matches nothing"
+            )
+            return None
+        return data
 
     @staticmethod
     def match_property(propiedad: Propiedad, criterios: Dict[str, Any]) -> bool:
@@ -37,9 +71,16 @@ class FilterMatcher:
             # No criteria = match all
             return True
 
-        # Check each criterion
+        # Check each criterion. A criterion that cannot be evaluated for this
+        # property (odd value, missing field) fails closed instead of raising
+        # out of the whole alert round.
         for key, value in criterios.items():
-            if not FilterMatcher._match_criterion(propiedad, key, value):
+            try:
+                matched = FilterMatcher._match_criterion(propiedad, key, value)
+            except (AttributeError, TypeError, ValueError) as e:
+                logger.warning(f"Criterion {key}={value!r} could not be evaluated: {e}")
+                return False
+            if not matched:
                 return False
 
         return True
@@ -132,11 +173,19 @@ class FilterMatcher:
                 return False
             return value.lower() in propiedad.estado.lower()
 
-        # Year built check
-        if key == "año_construccion_min":
-            if propiedad.year_built is None:
+        # Operation type (venta | alquiler)
+        if key == "tipo_operacion":
+            if propiedad.tipo_operacion is None:
                 return False
-            return propiedad.year_built >= int(value)
+            return propiedad.tipo_operacion.strip().lower() == str(value).strip().lower()
+
+        # Year built check. Propiedad has no such column, so it can never be
+        # confirmed: a filter that requires it matches nothing.
+        if key == "año_construccion_min":
+            year_built = getattr(propiedad, "year_built", None)
+            if year_built is None:
+                return False
+            return year_built >= int(value)
 
         # Community fees
         if key == "gastos_comunidad_max":
@@ -144,15 +193,9 @@ class FilterMatcher:
                 return False
             return propiedad.precio_comunidad <= float(value)
 
-        # Boolean amenity checks
-        if key == "ascensor" and value:
-            return bool(propiedad.ascensor)
-        if key == "garaje" and value:
-            return bool(propiedad.garaje)
-        if key == "terraza" and value:
-            return bool(propiedad.terraza)
-        if key == "piscina" and value:
-            return bool(propiedad.piscina)
+        # Boolean amenity checks (a false flag means "no requirement")
+        if key in ("ascensor", "garaje", "terraza", "piscina"):
+            return bool(getattr(propiedad, key)) if value else True
 
         # Amenities (check if list contains any of the amenities)
         if key == "amenidades":
@@ -168,17 +211,25 @@ class FilterMatcher:
             # All required amenities must be present
             return all(a in " ".join(prop_amenities) for a in required_amenities)
 
-        # Unknown criterion (skip)
-        logger.debug(f"Unknown criterion: {key}")
-        return True
+        # Unknown criterion: fail closed, a typo must not widen an alert
+        logger.error(f"Unknown criterion {key!r}: property does not match")
+        return False
 
     @staticmethod
     def get_matching_properties(
         propiedades: List[Propiedad],
         filtro: FiltroAlerta
     ) -> List[Propiedad]:
-        """Get all properties that match a filter."""
-        criterios = FilterMatcher.parse_criteria(filtro.criterios_json)
+        """Get all properties that match a filter.
+
+        Fails closed: a favourites-only alert never matches new listings and a
+        filter with unusable criteria matches nothing.
+        """
+        if filtro.tipo_alerta == TIPO_BAJADAS_FAVORITAS:
+            return []
+        criterios = FilterMatcher._load_criteria(filtro)
+        if criterios is None:
+            return []
         return [p for p in propiedades if FilterMatcher.match_property(p, criterios)]
 
     @staticmethod
@@ -213,6 +264,8 @@ class FilterMatcher:
                 parts.append(f"Dirección contiene: {value}")
             elif key == "tipo_propiedad":
                 parts.append(f"Tipo: {value}")
+            elif key == "tipo_operacion":
+                parts.append(f"Operación: {value}")
             elif key == "estado":
                 parts.append(f"Estado: {value}")
             elif key == "año_construccion_min":
@@ -243,6 +296,7 @@ class FilterMatcher:
         banos: Optional[int] = None,
         barrio: Optional[str] = None,
         tipo_propiedad: Optional[str] = None,
+        tipo_operacion: Optional[str] = None,
         estado: Optional[str] = None,
         año_construccion_min: Optional[int] = None,
         gastos_comunidad_max: Optional[float] = None,
@@ -273,6 +327,8 @@ class FilterMatcher:
             criteria["barrio"] = barrio
         if tipo_propiedad:
             criteria["tipo_propiedad"] = tipo_propiedad
+        if tipo_operacion:
+            criteria["tipo_operacion"] = tipo_operacion
         if estado:
             criteria["estado"] = estado
         if año_construccion_min is not None:
