@@ -12,6 +12,15 @@ from sqlmodel import Session, select
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from admin.fuente_notas import (  # noqa: E402  (Streamlit-free, no DB import)
+    DETAIL_SCRAPER_LABELS,
+    DETAIL_SCRAPER_OPTIONS,
+    SCRAPER_CONFIG_TEMPLATES,
+    build_notas,
+    detail_options_for,
+    merge_notas,
+    parse_notas,
+)
 from admin.test_runner import (  # noqa: E402  (Streamlit-free, no DB import)
     available_scraper_tests,
     run_scraper_tests,
@@ -37,158 +46,6 @@ def _render_run_logs(log_lines) -> None:
             st.caption(
                 "Sin líneas de log capturadas para esta ejecución."
             )
-
-
-# ── Scraper detail-type templates ────────────────────────────────────────────
-
-DETAIL_SCRAPER_OPTIONS = [
-    ("Automático (genérico)", None),
-    ("Puerto Inmobiliaria", "puerto"),
-    ("Mobilia", "mobilia"),
-    ("Punto Hogar", "puntohogar"),
-    ("Guadalete", "guadalete"),
-    ("Jiménez Ruiz", "jimenezruiz"),
-    ("Puerto Piso", "puertopiso"),
-    ("Alonsaga", "alonsaga"),
-    ("Samper", "samper"),
-    ("Tular", "tular"),
-]
-
-DETAIL_SCRAPER_LABELS = {v: label for label, v in DETAIL_SCRAPER_OPTIONS}
-
-SCRAPER_CONFIG_TEMPLATES = {
-    "puntohogar": {
-        "detail_scraper_type": "puntohogar",
-        "pagination_param": "pagina",
-        "pagination_start": 0,
-        "pagination_skip_first": True,
-        "use_results_per_page": False,
-        "max_pages": 10,
-        "municipio_filter": "El Puerto de Santa María",
-        "selectors": {
-            "property_container": "div.card-content",
-            "link": "a.card-more",
-            "title": "h3.card-title",
-        },
-    },
-    "guadalete": {
-        "detail_scraper_type": "guadalete",
-        "max_pages": 1,
-        "use_results_per_page": False,
-        "selectors": {"link_href_contains": "/inmuebles/"},
-    },
-    "mobilia": {
-        "detail_scraper_type": "mobilia",
-        "pagination_param": "pag",
-        "pagination_start": 1,
-        "use_results_per_page": True,
-        "selectors": {
-            "link_href_contains": "/ref-",
-        },
-    },
-    "puerto": {
-        "detail_scraper_type": "puerto",
-        "pagination_param": "pag",
-        "pagination_start": 1,
-        "use_results_per_page": True,
-    },
-    "jimenezruiz": {
-        "detail_scraper_type": "jimenezruiz",
-        "verify_ssl": False,
-        "max_pages": 1,
-        "pagination_skip_first": True,
-        "use_results_per_page": False,
-        "selectors": {
-            "property_container": "div.listado5_contendor_inmueble",
-            "link": "a",
-            "title": ".listado5_contendor_inmueble_datos_titulo",
-            "description": ".listado5_contendor_inmueble_datos_descripcion",
-        },
-    },
-    "puertopiso": {
-        "detail_scraper_type": "puertopiso",
-        "pagination_param": "pag",
-        "pagination_start": 1,
-        "pagination_skip_first": True,
-        "use_results_per_page": False,
-        "max_pages": 10,
-        "municipio_filter": "El Puerto de Santa María",
-        "selectors": {
-            "property_container": "div.mcb-wrap-inner",
-            "link": "div.desc a",
-            "title": "div.desc p strong",
-        },
-    },
-    "alonsaga": {
-        "detail_scraper_type": "alonsaga",
-        "selectors": {
-            "property_container": "div.listado5_contendor_inmueble",
-            "title": "div.listado5_contendor_inmueble_datos_titulo",
-        },
-        "patterns": {"price_pattern": r"([\d.,]+)\s*€"},
-        "pagination_param": "pag",
-        "pagination_start": 1,
-        "pagination_skip_first": True,
-        "use_results_per_page": False,
-    },
-    "samper": {
-        "detail_scraper_type": "samper",
-        # Sin municipio_filter: solo hay link_href_contains (sin selector de
-        # title), GenericScraper cae en "Sin título" en el listado y el
-        # filtro descartaría el 100% de los resultados. La URL ya filtra
-        # por El Puerto de Santa María en servidor.
-        "max_pages": 1,
-        "pagination_param": "pag",
-        "pagination_start": 1,
-        "pagination_skip_first": True,
-        "use_results_per_page": False,
-        "selectors": {"link_href_contains": "/Venta-"},
-    },
-    "tular": {
-        "detail_scraper_type": "tular",
-        # Sin municipio_filter (ref bug #43): solo hay link_href_contains (sin
-        # selector de title), GenericScraper cae en "Sin título" en el listado
-        # y el filtro descartaría el 100% de los resultados. La URL ya filtra
-        # por El Puerto de Santa María + Vivienda en servidor, y TularScraper
-        # fija municipio="El Puerto de Santa María".
-        # max_pages=1: el buscador Venta+Vivienda+El Puerto devuelve una sola
-        # página (contenedor #listado2_paginacion vacío en el T0).
-        "max_pages": 1,
-        "pagination_param": "pag",
-        "pagination_start": 1,
-        "pagination_skip_first": True,
-        "use_results_per_page": False,
-        "selectors": {"link_href_contains": "/Venta-"},
-    },
-}
-
-
-def _parse_notas(notas: str | None) -> dict:
-    """Parse notas field as JSON config, return empty dict on failure."""
-    if not notas:
-        return {}
-    try:
-        data = json.loads(notas)
-        return data if isinstance(data, dict) else {}
-    except Exception:
-        return {}
-
-
-def _build_notas(
-    detail_scraper_type: str | None, max_pages_override: int | None = None
-) -> str | None:
-    """Return notas JSON for a given detail_scraper_type, optionally overriding max_pages."""
-    if not detail_scraper_type:
-        return None
-    template = SCRAPER_CONFIG_TEMPLATES.get(detail_scraper_type)
-    if not template:
-        return None
-    config = dict(template)
-    if max_pages_override is not None and max_pages_override > 0:
-        config["max_pages"] = max_pages_override
-    elif max_pages_override == 0:
-        config.pop("max_pages", None)
-    return json.dumps(config, ensure_ascii=False)
 
 
 @st.cache_resource
@@ -316,7 +173,7 @@ with col1:
                                 url=url.strip(),
                                 tipo_scraper=tipo_scraper,
                                 intervalo_horas=int(intervalo_horas),
-                                notas=_build_notas(
+                                notas=build_notas(
                                     selected_detail_type, int(max_pages)
                                 ),
                                 activa=True,
@@ -353,9 +210,9 @@ with col2:
                             st.markdown(f"### {status_icon} {fuente.nombre}")
 
                         with col_status:
-                            cfg = _parse_notas(fuente.notas)
+                            cfg = parse_notas(fuente.notas)
                             dt = cfg.get("detail_scraper_type")
-                            label = DETAIL_SCRAPER_LABELS.get(dt, "genérico")
+                            label = DETAIL_SCRAPER_LABELS.get(dt, dt or "genérico")
                             st.caption(f"🤖 {fuente.tipo_scraper} · {label}")
 
                         with col_actions:
@@ -416,14 +273,19 @@ with col2:
                             st.divider()
                             st.subheader("✏️ Editar Fuente")
 
-                            current_cfg = _parse_notas(fuente.notas)
+                            current_cfg = parse_notas(fuente.notas)
                             current_dt = current_cfg.get("detail_scraper_type")
+                            # Types the form does not know stay selectable so a
+                            # save cannot silently reset them to generic.
+                            edit_options = detail_options_for(current_dt)
+                            if len(edit_options) > len(DETAIL_SCRAPER_OPTIONS):
+                                st.warning(
+                                    f"⚠️ El scraper de detalle '{current_dt}' no está en la "
+                                    "lista; se conservará su configuración al guardar."
+                                )
+                            edit_labels = [label for label, _ in edit_options]
                             current_dt_idx = next(
-                                (
-                                    i
-                                    for i, (_, v) in enumerate(DETAIL_SCRAPER_OPTIONS)
-                                    if v == current_dt
-                                ),
+                                (i for i, (_, v) in enumerate(edit_options) if v == current_dt),
                                 0,
                             )
 
@@ -447,8 +309,8 @@ with col2:
 
                                 edit_detail_idx = st.selectbox(
                                     "Scraper de detalle",
-                                    options=range(len(DETAIL_SCRAPER_OPTIONS)),
-                                    format_func=lambda i: detail_type_labels[i],
+                                    options=range(len(edit_options)),
+                                    format_func=lambda i: edit_labels[i],
                                     index=current_dt_idx,
                                     key=f"edit_detail_{fuente.id}",
                                 )
@@ -484,11 +346,14 @@ with col2:
                                             st.error("❌ URL inválida")
                                         else:
                                             try:
-                                                new_dt = DETAIL_SCRAPER_OPTIONS[
-                                                    edit_detail_idx
-                                                ][1]
-                                                new_notas = _build_notas(
-                                                    new_dt, int(edit_max_pages)
+                                                new_dt = edit_options[edit_detail_idx][1]
+                                                # Merge into the stored config: a rebuild
+                                                # from a template would wipe selectors
+                                                # the form cannot represent.
+                                                new_notas = merge_notas(
+                                                    fuente.notas,
+                                                    new_dt,
+                                                    int(edit_max_pages),
                                                 )
                                                 with Session(engine) as s:
                                                     existing = FuenteCRUD.get_by_url(
@@ -536,7 +401,7 @@ with col2:
                                         st.rerun()
 
                         # Test scraping buttons
-                        cfg_run = _parse_notas(fuente.notas)
+                        cfg_run = parse_notas(fuente.notas)
                         scraper_key = cfg_run.get("detail_scraper_type")
                         has_scraper_tests = scraper_key in SCRAPER_TESTS_MAP
 

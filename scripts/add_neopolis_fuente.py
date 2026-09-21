@@ -21,6 +21,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "app"))
 
 from sqlmodel import Session, select
 
+from admin.fuente_notas import SCRAPER_CONFIG_TEMPLATES
 from db.database import engine
 from db.models import Fuente
 
@@ -34,24 +35,9 @@ NEOPOLIS_URL = (
     "&buscador=1&idio=1"
 )
 
-# Configuración ScraperConfig-compatible almacenada en el campo notas.
-# use_results_per_page=False: solo la paginación pag=N se verificó en vivo
-# (Fase 0); &res=N nunca fue probado y podría truncar u obtener un 500.
-NOTAS_CONFIG = {
-    # NOTE: listing-page hrefs are relative and have NO leading slash
-    # (e.g. "ficha/piso/...", not "/ficha/piso/..."). A leading-slash value
-    # here matches zero properties (confirmed live 2026-08-24: 0 found).
-    "selectors": {"link_href_contains": "ficha/"},
-    "detail_scraper_type": "neopolis",
-    "pagination_param": "pag",
-    "pagination_start": 1,
-    "pagination_skip_first": False,
-    "use_results_per_page": False,
-    "max_pages": 10,
-    "timeout": 120,
-    "retries": 2,
-    "verify_ssl": True,
-}
+# Configuración ScraperConfig-compatible almacenada en el campo notas; vive en
+# admin.fuente_notas para que la UI de Fuentes y este script no se desincronicen.
+NOTAS_CONFIG = SCRAPER_CONFIG_TEMPLATES["neopolis"]
 
 
 def main() -> None:
