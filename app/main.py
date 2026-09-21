@@ -10,6 +10,9 @@ from sqlalchemy import text
 sys.path.insert(0, str(Path(__file__).parent))
 
 # Configure logging
+from logging_setup import install_log_redaction
+
+install_log_redaction()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 

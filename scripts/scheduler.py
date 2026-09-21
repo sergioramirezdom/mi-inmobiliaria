@@ -19,9 +19,11 @@ from argparse import ArgumentParser
 # Add app directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from app.logging_setup import install_log_redaction
 from app.scraper.scheduler import ScraperScheduler
 
-# Configure logging
+# Configure logging (masks the Telegram token before any handler sees a record)
+install_log_redaction()
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s | %(levelname)-8s | %(name)s | %(message)s',

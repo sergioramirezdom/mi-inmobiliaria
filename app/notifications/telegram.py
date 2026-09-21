@@ -16,8 +16,13 @@ from db.models import Propiedad, FiltroAlerta, Fuente
 from .filter_matcher import FilterMatcher
 from .alert_routing import resolve_chat_id
 from config import settings
+from logging_setup import install_log_redaction
 
 logger = logging.getLogger(__name__)
+
+# The bot token travels in the request URL: whatever process can send a
+# message must never log it (issue #55). Idempotent; entrypoints call it too.
+install_log_redaction()
 
 _sleep = asyncio.sleep  # indirection so tests never really wait between retries
 
