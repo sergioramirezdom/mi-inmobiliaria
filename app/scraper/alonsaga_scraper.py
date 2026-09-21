@@ -76,6 +76,12 @@ class AlonsagaScraper:
         if price_match:
             data["precio"] = _parse_price_eu(price_match.group(1))
 
+        # Description: alonsaga puts the full text in p#inmueble2_datos_adicionales
+        # (extracted before detection: the operation detector reads it)
+        desc = _extract_descripcion(soup)
+        if desc:
+            data["descripcion"] = desc
+
         # Detect operation type and garaje (common function)
         operacion = detectar_operacion(
             titulo=data.get("titulo"), precio=data.get("precio"), url=url,
@@ -117,11 +123,6 @@ class AlonsagaScraper:
             fotos = _extract_fotos(soup, property_id)
             if fotos:
                 data["fotos"] = fotos
-
-        # Description: alonsaga puts the full text in p#inmueble2_datos_adicionales
-        desc = _extract_descripcion(soup)
-        if desc:
-            data["descripcion"] = desc
 
         # Zona fallback: URL first, then HTML
         if not data.get("barrio"):

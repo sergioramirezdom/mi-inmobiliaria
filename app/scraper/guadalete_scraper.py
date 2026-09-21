@@ -121,6 +121,13 @@ class GuadaleteScraper:
             }
             data["tipo_propiedad"] = tipo_map.get(url_match.group(1), url_match.group(1))
 
+        # Description (extracted first: the operation detector reads it)
+        for tag in soup.find_all(["div", "section", "p"]):
+            text = tag.get_text(strip=True)
+            if len(text) > 150 and not tag.find_all(["div", "section"]):
+                data.setdefault("descripcion", text[:2000])
+                break
+
         # Detect operation type and garaje
         operacion = detectar_operacion(
             titulo=data.get("titulo"), precio=data.get("precio"), url=url,
@@ -134,13 +141,6 @@ class GuadaleteScraper:
                 return data
         if es_garaje(titulo=data.get("titulo"), tipo_propiedad=data.get("tipo_propiedad"), url=url):
             data["tipo_propiedad"] = "garaje"
-
-        # Description
-        for tag in soup.find_all(["div", "section", "p"]):
-            text = tag.get_text(strip=True)
-            if len(text) > 150 and not tag.find_all(["div", "section"]):
-                data.setdefault("descripcion", text[:2000])
-                break
 
         if not data.get("barrio"):
             data["barrio"] = _zona_from_url(url) or _zona_from_html(page_text, soup)
