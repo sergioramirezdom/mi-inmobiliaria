@@ -38,7 +38,7 @@ _MAX_BADGE_CHARS = 40
 _EXCLUDED_TAGS = frozenset(
     {"nav", "footer", "select", "option", "a", "button", "script", "style", "noscript", "head"}
 )
-_EXCLUDED_ATTR_RE = re.compile(r"similar|relacionad|related|recomend|footer|cookie|menu|\bnav", re.I)
+SECONDARY_REGION_RE = re.compile(r"similar|relacionad|related|recomend|footer|cookie|menu|\bnav", re.I)
 
 # Free text (manual URLs on unknown sites): the status must be the predicate of
 # the listing, not a complement ("plaza de garaje reservada").
@@ -83,7 +83,7 @@ def _excluded(node) -> bool:
         attrs = " ".join(
             [" ".join(el.get("class") or []), el.get("id") or ""]
         )
-        if attrs.strip() and _EXCLUDED_ATTR_RE.search(attrs):
+        if attrs.strip() and SECONDARY_REGION_RE.search(attrs):
             return True
         el = el.parent
     return False
