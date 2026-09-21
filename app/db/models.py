@@ -219,6 +219,7 @@ class RegistroEjecucion(SQLModel, table=True):
     encontradas: Optional[int] = None  # scrape only: raw listing URLs found, pre-filter/pre-dedup
     duracion_segundos: Optional[float] = None
     run_id: Optional[str] = Field(default=None, index=True)  # UUID4 shared by all rows from one top-level cycle
+    error_mensaje: Optional[str] = None  # truncated cause of a whole-run failure (errores >= 1)
 
 
 class EstadisticaNotarial(SQLModel, table=True):
