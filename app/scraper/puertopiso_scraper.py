@@ -14,6 +14,7 @@ from .config import ScraperConfig
 from .geo_utils import coords_from_gmaps_center
 from .zona_utils import extract_from_url as _zona_from_url, extract_from_html as _zona_from_html
 from .operacion_detector import detectar_operacion, es_garaje
+from .estado_venta import detect_estado_venta
 
 logger = logging.getLogger(__name__)
 
@@ -92,12 +93,12 @@ class PuertoPisoScraper:
         page_text = soup.get_text(" ", strip=True)
         lower_text = page_text.lower()
 
-        # Sold detection
-        for keyword in ("vendido", "vendida", "reservado", "reservada"):
-            if keyword in lower_text[:3000]:
-                data["activa"] = False
-                data["estado"] = keyword.capitalize()
-                return data
+        # Sold detection (status badge / title only, see estado_venta)
+        estado = detect_estado_venta(soup)
+        if estado:
+            data["activa"] = False
+            data["estado"] = estado
+            return data
 
         # Title and price from div.uno h4 elements
         uno = soup.find("div", class_="uno")

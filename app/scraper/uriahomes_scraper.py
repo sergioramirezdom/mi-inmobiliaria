@@ -23,6 +23,7 @@ from bs4 import BeautifulSoup
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from .config import ScraperConfig
 from .geo_utils import coords_from_cargar_mapa
+from .estado_venta import detect_estado_venta
 from .zona_utils import extract_from_url as _zona_from_url, extract_from_html as _zona_from_html
 
 from .foto_extractor import extraer_fotos
@@ -84,10 +85,6 @@ _EN_FEATURE_MAP = {
     "detached": "independiente",
 }
 
-# Keywords that indicate a property is sold/reserved/rented on this site
-# (checked against the lowercased page text).
-_SOLD_KEYWORDS = ("vendido", "vendida", "reservado", "reservada", "alquilado", "alquilada")
-
 
 class UriaHomesScraper:
     """Detail scraper for UriaHomes Inmobiliaria (InmoServer CMS)."""
@@ -119,14 +116,13 @@ class UriaHomesScraper:
 
         soup = BeautifulSoup(html, "lxml")
         page_text = soup.get_text(" ", strip=True)
-        lower_text = page_text.lower()
 
-        # Sold/reserved/rented detection
-        for keyword in _SOLD_KEYWORDS:
-            if keyword in lower_text:
-                data["activa"] = False
-                data["estado"] = keyword.capitalize()
-                return data
+        # Sold/reserved/rented detection (status badge / title only, see estado_venta)
+        estado = detect_estado_venta(soup, include_rented=True)
+        if estado:
+            data["activa"] = False
+            data["estado"] = estado
+            return data
 
         # Title: h1 → "For sale of flat in El Puerto de Santa María, EL JUNCAL"
         h1 = soup.find("h1")

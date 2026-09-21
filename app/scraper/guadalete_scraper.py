@@ -15,6 +15,7 @@ from .zona_utils import extract_from_url as _zona_from_url, extract_from_html as
 
 from .foto_extractor import extraer_fotos
 from .operacion_detector import detectar_operacion, es_garaje
+from .estado_venta import detect_estado_venta
 
 logger = logging.getLogger(__name__)
 
@@ -65,13 +66,12 @@ class GuadaleteScraper:
         soup = BeautifulSoup(html, "lxml")
         page_text = soup.get_text(" ", strip=True)
 
-        # Sold detection
-        lower_text = page_text.lower()
-        for keyword in ("vendido", "vendida", "reservado", "reservada", "alquilado"):
-            if keyword in lower_text:
-                data["activa"] = False
-                data["estado"] = keyword.capitalize()
-                return data
+        # Sold detection (status badge / title only, see estado_venta)
+        estado = detect_estado_venta(soup, include_rented=True)
+        if estado:
+            data["activa"] = False
+            data["estado"] = estado
+            return data
 
         # Title: strip "IG1234 - " prefix
         h1 = soup.find("h1")
