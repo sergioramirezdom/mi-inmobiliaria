@@ -17,7 +17,13 @@ from .detail_factory import get_detail_scraper
 from .description_enricher import extract_barrio_from_text
 from .config import ScraperConfig
 from .zona_normalizer import CatalogoInvalidoError
-from .check_outcome import CheckOutcome, classify_check_outcome, apply_check_outcome
+from .check_outcome import (
+    CheckOutcome,
+    apply_check_outcome,
+    classify_check_outcome,
+    reactivate,
+    source_looks_broken,
+)
 from .price_drop import build_price_drop_entry
 from db.models import Fuente, Propiedad, PrecioHistorico
 from db.database import UbicacionAproximadaCRUD, ZonaPoligonoCRUD
@@ -26,6 +32,10 @@ from db.database import UbicacionAproximadaCRUD, ZonaPoligonoCRUD
 # Hard cap when neither the caller nor the fuente config sets max_pages, so a
 # site that ignores an out-of-range `pag` cannot loop the scheduler forever.
 DEFAULT_MAX_PAGES = 50
+# A listing deactivated longer ago than this is not re-fetched when the source
+# still lists it: sources that keep sold listings on their index would
+# otherwise cost one detail fetch per sold listing on every run.
+REACTIVATION_WINDOW_DAYS = 30
 
 
 class PaginatedScraper:
@@ -56,6 +66,58 @@ class PaginatedScraper:
                 self.db_session.commit()
         except Exception as e:
             self.logger.warning(f"No se pudo resolver zona-polígono: {e}")
+
+    def _strike_empty_rechecks(self, empties: list, rechecked: int, stats: dict) -> None:
+        """Strike the EMPTY 3-day re-checks, unless the source itself looks broken.
+
+        When most of the re-checked listings came back EMPTY the source is
+        serving an anti-bot/placeholder page (or its layout changed): nothing is
+        struck and the run is reported as failed instead.
+        """
+        if not empties:
+            return
+        if source_looks_broken(len(empties), rechecked):
+            motivo = (
+                f"{len(empties)} of {rechecked} re-checked listings returned no data "
+                "(anti-bot page or layout change?); nothing was deactivated"
+            )
+            self.logger.error(f"❌ {motivo}")
+            stats["error"] = stats.get("error") or motivo
+            return
+        for existing in empties:
+            try:
+                result = apply_check_outcome(self.db_session, existing, CheckOutcome.EMPTY)
+            except Exception as e:
+                self.logger.warning(f"Strike failed for {existing.url_original[:60]}: {type(e).__name__}: {e}")
+                self.db_session.rollback()
+                stats["detalle_fallido"] += 1
+                continue
+            if result == "deactivated":
+                self.logger.info(f"🚫 Marcada como no disponible: {existing.titulo}")
+                stats["vendidas"] = stats.get("vendidas", 0) + 1
+            else:
+                self.logger.info(f"⚠️ Sin datos (1ª confirmación), sigue activa: {existing.titulo}")
+
+    async def _try_reactivate(self, existing: Propiedad, url_original: str, stats: dict) -> None:
+        """Reactivate a deactivated listing whose ficha is alive again.
+
+        Skips manual exclusions and listings deactivated long ago. Only an ALIVE
+        detail result reactivates: a still-sold ficha (GONE), a placeholder page
+        (EMPTY) or a failed fetch leaves it inactive.
+        """
+        if existing.excluir_de_estadisticas:
+            return
+        if existing.fecha_baja and (datetime.utcnow() - existing.fecha_baja).days > REACTIVATION_WINDOW_DAYS:
+            return
+        try:
+            details = await self.detail_scraper.scrape_property_details(url_original)
+            if classify_check_outcome(details) is CheckOutcome.ALIVE:
+                reactivate(self.db_session, existing)
+                self.logger.info(f"♻️ Reactivada (vuelve a estar publicada): {existing.titulo}")
+                stats["reactivadas"] += 1
+        except Exception as e:
+            self.logger.warning(f"Reactivation check failed for {url_original[:60]}: {type(e).__name__}: {e}")
+            stats["detalle_fallido"] += 1
 
     async def scrape_all_pages(
         self,
@@ -89,6 +151,7 @@ class PaginatedScraper:
             "garajes": 0,
             "vendidas": 0,
             "detalle_fallido": 0,
+            "reactivadas": 0,
         }
 
         # Load config from fuente.notas if available
@@ -116,6 +179,10 @@ class PaginatedScraper:
             page = 1
             consecutive_empty_pages = 0
             seen_urls = set()
+            # EMPTY re-check results are struck after the run, once we know the
+            # source is not just serving an anti-bot/placeholder page for everything.
+            empty_rechecks: list = []
+            rechecked = 0
 
             while True:
                 if page > max_pages:
@@ -273,14 +340,17 @@ class PaginatedScraper:
                                         # classifier never returns it — fetch failures are caught
                                         # by the `except Exception` below, which counts them in `detalle_fallido`).
                                         outcome = classify_check_outcome(details)
-                                        estado = details.get("estado", "No disponible") if outcome is CheckOutcome.GONE else None
-                                        result = apply_check_outcome(self.db_session, existing, outcome, estado=estado)
+                                        rechecked += 1
+                                        if outcome is CheckOutcome.EMPTY:
+                                            empty_rechecks.append(existing)
+                                            result = "held"
+                                        else:
+                                            estado = details.get("estado", "No disponible") if outcome is CheckOutcome.GONE else None
+                                            result = apply_check_outcome(self.db_session, existing, outcome, estado=estado)
 
                                         if result == "deactivated":
                                             self.logger.info(f"🚫 Marcada como no disponible: {existing.titulo}")
                                             stats["vendidas"] = stats.get("vendidas", 0) + 1
-                                        elif result == "strike":
-                                            self.logger.info(f"⚠️ Sin datos (1ª confirmación), sigue activa: {existing.titulo}")
                                         elif result == "alive":
                                             # Check for price change
                                             nuevo_precio = details.get("precio")
@@ -306,6 +376,11 @@ class PaginatedScraper:
                                     except Exception as e:
                                         self.logger.warning(f"3-day re-check failed for {url_original[:60]}: {type(e).__name__}: {e}")
                                         stats["detalle_fallido"] += 1
+                            # A deactivated listing the source still lists may have
+                            # been relisted (or was wrongly deactivated): reactivate it
+                            # only if its own ficha is alive again.
+                            if not existing.activa:
+                                await self._try_reactivate(existing, url_original, stats)
                             stats["duplicadas"] += 1
                             continue
 
@@ -423,6 +498,8 @@ class PaginatedScraper:
                     break
 
                 page += 1
+
+            self._strike_empty_rechecks(empty_rechecks, rechecked, stats)
 
             self.logger.info(f"\n{'='*80}")
             self.logger.info(f"✅ Pagination complete!")

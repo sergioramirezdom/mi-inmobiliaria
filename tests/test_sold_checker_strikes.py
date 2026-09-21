@@ -5,7 +5,10 @@ render (same constraint documented in tests/test_registro_ejecucion.py).
 """
 import sys
 from pathlib import Path
+from datetime import datetime, timedelta
 from unittest.mock import MagicMock, AsyncMock
+
+import httpx
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "app"))
 
@@ -38,6 +41,9 @@ class FakeSession:
     def refresh(self, obj):
         pass
 
+    def rollback(self):
+        self.rollbacks = getattr(self, "rollbacks", 0) + 1
+
 
 def _prop(prop_id=1, fuente_id=1, intentos_fallidos=0, titulo="Piso en venta", precio=100000):
     prop = MagicMock()
@@ -46,6 +52,8 @@ def _prop(prop_id=1, fuente_id=1, intentos_fallidos=0, titulo="Piso en venta", p
     prop.intentos_fallidos = intentos_fallidos
     prop.activa = True
     prop.estado = None
+    prop.estado_baja = None
+    prop.ultimo_strike = None
     prop.fecha_baja = None
     prop.titulo = titulo
     prop.precio = precio
@@ -83,11 +91,19 @@ async def test_gone_deactivates_same_run_no_strike_needed(monkeypatch):
     assert len(stats["vendidas_lista"]) == 1
 
 
-async def test_404_exception_maps_to_gone_and_deactivates(monkeypatch):
+def _http_error(status, url="http://example.com/1"):
+    request = httpx.Request("GET", url)
+    return httpx.HTTPStatusError(
+        f"HTTP {status} for {url}", request=request, response=httpx.Response(status, request=request)
+    )
+
+
+async def test_404_status_error_maps_to_gone_and_deactivates(monkeypatch):
     prop = _prop(intentos_fallidos=0)
+    prop.estado = "segunda mano"
 
     async def raise_404(url):
-        raise Exception("404 Client Error: Not Found for url: " + url)
+        raise _http_error(404, url)
 
     _patch_scraper(monkeypatch, raise_404)
     session = FakeSession([prop], [_fuente()])
@@ -95,7 +111,147 @@ async def test_404_exception_maps_to_gone_and_deactivates(monkeypatch):
     stats = await sold_checker.check_sold_properties(session)
 
     assert prop.activa is False
+    assert prop.estado == "segunda mano"
+    assert prop.estado_baja == "No disponible"
     assert stats["vendidas"] == 1
+    assert stats["vendidas_lista"][0]["estado"] == "No disponible"
+
+
+async def test_410_status_error_deactivates(monkeypatch):
+    prop = _prop()
+
+    async def raise_410(url):
+        raise _http_error(410, url)
+
+    _patch_scraper(monkeypatch, raise_410)
+
+    stats = await sold_checker.check_sold_properties(FakeSession([prop], [_fuente()]))
+
+    assert prop.activa is False
+    assert stats["vendidas"] == 1
+
+
+async def test_503_whose_url_contains_404_is_an_error_not_a_deactivation(monkeypatch):
+    prop = _prop()
+    prop.url_original = "https://x.es/inmueble/14042"
+
+    async def raise_503(url):
+        raise _http_error(503, url)
+
+    _patch_scraper(monkeypatch, raise_503)
+
+    stats = await sold_checker.check_sold_properties(FakeSession([prop], [_fuente()]))
+
+    assert prop.activa is True
+    assert stats["vendidas"] == 0
+    assert stats["errores"] == 1
+
+
+async def test_text_only_404_exception_is_not_treated_as_gone(monkeypatch):
+    prop = _prop()
+
+    async def raise_text(url):
+        raise Exception("404 Client Error: Not Found for url: " + url)
+
+    _patch_scraper(monkeypatch, raise_text)
+
+    stats = await sold_checker.check_sold_properties(FakeSession([prop], [_fuente()]))
+
+    assert prop.activa is True
+    assert stats["errores"] == 1
+
+
+async def test_failed_commit_on_gone_is_rolled_back_and_counted_as_error(monkeypatch):
+    prop = _prop()
+
+    async def raise_404(url):
+        raise _http_error(404, url)
+
+    _patch_scraper(monkeypatch, raise_404)
+    session = FakeSession([prop], [_fuente()])
+
+    def boom():
+        raise RuntimeError("db went away")
+
+    session.commit = boom
+
+    stats = await sold_checker.check_sold_properties(session)
+
+    assert session.rollbacks == 1
+    assert stats["errores"] == 1
+
+
+async def test_gone_result_from_scraper_keeps_estado_and_sets_estado_baja(monkeypatch):
+    prop = _prop()
+    prop.estado = "nuevo"
+    _patch_scraper(monkeypatch, lambda url: {"activa": False, "estado": "Vendida"})
+
+    stats = await sold_checker.check_sold_properties(FakeSession([prop], [_fuente()]))
+
+    assert prop.estado == "nuevo"
+    assert prop.estado_baja == "Vendida"
+    assert stats["vendidas_lista"][0]["estado"] == "Vendida"
+
+
+async def test_empty_deactivation_alert_shows_the_sale_status(monkeypatch):
+    prop = _prop(intentos_fallidos=1)
+    prop.estado = "segunda mano"
+    _patch_scraper(monkeypatch, lambda url: {})
+
+    stats = await sold_checker.check_sold_properties(FakeSession([prop], [_fuente()]))
+
+    assert prop.activa is False
+    assert stats["vendidas_lista"][0]["estado"] == "No disponible"
+    assert prop.estado == "segunda mano"
+
+
+async def test_second_empty_within_the_same_day_is_one_strike_only(monkeypatch):
+    prop = _prop(intentos_fallidos=1)
+    prop.ultimo_strike = datetime.utcnow() - timedelta(hours=1)
+    _patch_scraper(monkeypatch, lambda url: {})
+
+    stats = await sold_checker.check_sold_properties(FakeSession([prop], [_fuente()]))
+
+    assert prop.activa is True
+    assert prop.intentos_fallidos == 1
+    assert stats["vendidas"] == 0
+
+
+async def test_source_mostly_empty_deactivates_nothing_and_is_reported_failing(monkeypatch):
+    # 6 listings of one fuente, all returning a placeholder page; two already
+    # carry an old strike, so an unguarded run would deactivate them.
+    props = [_prop(prop_id=n, intentos_fallidos=1 if n < 3 else 0) for n in range(1, 7)]
+    for prop in props:
+        prop.ultimo_strike = datetime.utcnow() - timedelta(days=2) if prop.intentos_fallidos else None
+    _patch_scraper(monkeypatch, lambda url: {})
+    session = FakeSession(props, [_fuente()])
+
+    stats = await sold_checker.check_sold_properties(session)
+
+    assert all(p.activa is True for p in props)
+    assert all(p.intentos_fallidos in (0, 1) for p in props)
+    assert stats["vendidas"] == 0
+    assert 1 in stats["fuentes_fallidas"]
+    registro = [o for o in session.added if type(o).__name__ == "RegistroEjecucion"][0]
+    assert registro.errores >= 1
+    assert registro.error_mensaje
+
+
+async def test_healthy_source_with_isolated_empties_still_deactivates_after_a_confirmed_strike(monkeypatch):
+    props = [_prop(prop_id=n) for n in range(1, 7)]
+    props[0].intentos_fallidos = 1
+    props[0].ultimo_strike = datetime.utcnow() - timedelta(days=2)
+
+    async def fetch(url):
+        return {} if url.endswith("/1") else {"titulo": "Piso", "precio": 100000}
+
+    _patch_scraper(monkeypatch, fetch)
+
+    stats = await sold_checker.check_sold_properties(FakeSession(props, [_fuente()]))
+
+    assert props[0].activa is False
+    assert stats["vendidas"] == 1
+    assert stats["fuentes_fallidas"] == {}
 
 
 async def test_first_empty_outcome_leaves_property_active_and_records_one_strike(monkeypatch):

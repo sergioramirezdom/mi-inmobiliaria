@@ -59,6 +59,9 @@ def _existing(intentos_fallidos=0, activa=True, precio=100000, prop_id=1, favori
     existing.precio_anterior = None
     existing.updated_at = None
     existing.estado = None
+    existing.estado_baja = None
+    existing.ultimo_strike = None
+    existing.excluir_de_estadisticas = False
     existing.fecha_baja = None
     existing.fecha_scraping = datetime.utcnow() - timedelta(days=5)
     existing.intentos_fallidos = intentos_fallidos
@@ -185,3 +188,145 @@ async def test_price_drop_entry_favorita_false_for_non_favorite(monkeypatch):
     drop = stats["bajadas_precio"][0]
     assert drop["propiedad_id"] == 5
     assert drop["favorita"] is False
+
+
+# --- Issue #53: time-separated strikes, reactivation, circuit breaker ---------
+
+
+async def test_empty_within_the_strike_interval_does_not_deactivate(monkeypatch):
+    existing = _existing(intentos_fallidos=1)
+    existing.ultimo_strike = datetime.utcnow() - timedelta(hours=1)
+
+    async def fetch(url):
+        return {}
+
+    stats, session = await _run(monkeypatch, existing, fetch)
+
+    assert existing.activa is True
+    assert existing.intentos_fallidos == 1
+    assert stats.get("vendidas", 0) == 0
+
+
+async def test_gone_keeps_estado_and_records_estado_baja(monkeypatch):
+    existing = _existing()
+    existing.estado = "segunda mano"
+
+    async def fetch(url):
+        return {"activa": False, "estado": "Vendida"}
+
+    await _run(monkeypatch, existing, fetch)
+
+    assert existing.estado == "segunda mano"
+    assert existing.estado_baja == "Vendida"
+
+
+async def test_inactive_listing_seen_alive_again_is_reactivated(monkeypatch):
+    existing = _existing(activa=False)
+    existing.fecha_baja = datetime.utcnow() - timedelta(days=2)
+    existing.estado_baja = "No disponible"
+
+    async def fetch(url):
+        return {"titulo": "Piso en venta", "precio": 100000}
+
+    stats, session = await _run(monkeypatch, existing, fetch)
+
+    assert existing.activa is True
+    assert existing.fecha_baja is None
+    assert existing.estado_baja is None
+    assert stats["reactivadas"] == 1
+
+
+async def test_inactive_listing_still_sold_stays_inactive(monkeypatch):
+    existing = _existing(activa=False)
+    existing.fecha_baja = datetime.utcnow() - timedelta(days=2)
+
+    async def fetch(url):
+        return {"activa": False, "estado": "Vendida"}
+
+    stats, session = await _run(monkeypatch, existing, fetch)
+
+    assert existing.activa is False
+    assert stats["reactivadas"] == 0
+
+
+async def test_inactive_listing_empty_page_is_not_reactivated(monkeypatch):
+    existing = _existing(activa=False)
+    existing.fecha_baja = datetime.utcnow() - timedelta(days=2)
+
+    async def fetch(url):
+        return {}
+
+    stats, session = await _run(monkeypatch, existing, fetch)
+
+    assert existing.activa is False
+    assert stats["reactivadas"] == 0
+
+
+async def test_manually_excluded_listing_is_never_reactivated(monkeypatch):
+    existing = _existing(activa=False)
+    existing.excluir_de_estadisticas = True
+    existing.fecha_baja = datetime.utcnow() - timedelta(days=2)
+    fetched = []
+
+    async def fetch(url):
+        fetched.append(url)
+        return {"titulo": "Piso en venta", "precio": 100000}
+
+    stats, session = await _run(monkeypatch, existing, fetch)
+
+    assert existing.activa is False
+    assert fetched == []
+
+
+async def test_long_deactivated_listing_is_not_refetched(monkeypatch):
+    existing = _existing(activa=False)
+    existing.fecha_baja = datetime.utcnow() - timedelta(days=400)
+    fetched = []
+
+    async def fetch(url):
+        fetched.append(url)
+        return {"titulo": "Piso en venta", "precio": 100000}
+
+    await _run(monkeypatch, existing, fetch)
+
+    assert existing.activa is False
+    assert fetched == []
+
+
+class _ManyExistingSession(FakeDBSession):
+    """Returns a different preset row per select(), in URL order."""
+
+    def __init__(self, rows):
+        super().__init__(None)
+        self._rows = iter(rows)
+
+    def exec(self, stmt):
+        result = MagicMock()
+        result.first.return_value = next(self._rows)
+        return result
+
+
+async def test_source_mostly_empty_deactivates_nothing_and_fails_the_run(monkeypatch):
+    rows = []
+    for n in range(1, 7):
+        row = _existing(intentos_fallidos=1, prop_id=n)
+        row.url_original = f"http://example.com/prop/{n}"
+        row.ultimo_strike = datetime.utcnow() - timedelta(days=2)
+        rows.append(row)
+    session = _ManyExistingSession(rows)
+    paginated = PaginatedScraper(db_session=session)
+    listing = [{"url_original": r.url_original, "titulo": "Piso en venta"} for r in rows]
+    monkeypatch.setattr(paginated.generic_scraper, "scrape", AsyncMock(side_effect=[listing, []]))
+
+    async def fetch(url):
+        return {}
+
+    monkeypatch.setattr(
+        pag_mod, "get_detail_scraper", lambda detail_type, config: FakeDetailScraper(fetch)
+    )
+
+    stats = await paginated.scrape_all_pages(_fuente())
+
+    assert all(r.activa is True for r in rows)
+    assert stats.get("vendidas", 0) == 0
+    assert stats["error"]
