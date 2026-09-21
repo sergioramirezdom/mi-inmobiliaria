@@ -28,26 +28,17 @@ def test_sold_checker_routes_tular():
 
 
 def _load_fuentes_page_module():
-    """Import app/pages/1_fuentes.py constants without running the Streamlit page."""
-    import ast
+    """Constants and helpers behind app/pages/1_fuentes.py.
 
-    source = (Path(__file__).parent.parent / "app" / "pages" / "1_fuentes.py").read_text(
-        encoding="utf-8"
-    )
-    tree = ast.parse(source)
-    namespace = {"str": str, "json": json}
-    for node in tree.body:
-        if isinstance(node, ast.Assign) and any(
-            isinstance(t, ast.Name)
-            and t.id in ("DETAIL_SCRAPER_OPTIONS", "SCRAPER_CONFIG_TEMPLATES")
-            for t in node.targets
-        ):
-            code = compile(ast.Module(body=[node], type_ignores=[]), "<fuentes>", "exec")
-            exec(code, namespace)
-        if isinstance(node, ast.FunctionDef) and node.name == "_build_notas":
-            code = compile(ast.Module(body=[node], type_ignores=[]), "<fuentes>", "exec")
-            exec(code, namespace)
-    return namespace
+    They live in admin.fuente_notas (Streamlit-free); the page imports them.
+    """
+    from admin import fuente_notas
+
+    return {
+        "DETAIL_SCRAPER_OPTIONS": fuente_notas.DETAIL_SCRAPER_OPTIONS,
+        "SCRAPER_CONFIG_TEMPLATES": fuente_notas.SCRAPER_CONFIG_TEMPLATES,
+        "_build_notas": fuente_notas.build_notas,
+    }
 
 
 def test_tular_in_detail_scraper_options():
