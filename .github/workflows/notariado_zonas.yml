@@ -1,15 +1,21 @@
 name: Notariado Zona Price Avg Ingestion
 
 on:
-  # Weekly, Monday at 07:00 UTC
-  schedule:
-    - cron: '0 7 * * 1'
+  # Runs right after the weekly general stats ingestion: each zona row is
+  # stamped with the latest estadisticanotarial.last_data_update, so the
+  # general period must be ingested first.
+  workflow_run:
+    workflows: ["Notariado Market Stats Ingestion"]
+    types: [completed]
+    branches: [master]
 
   # Allow manual trigger (no inputs)
   workflow_dispatch:
 
 jobs:
   notariado-zonas:
+    # Skip when the upstream stats run failed or was cancelled
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
