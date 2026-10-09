@@ -1,6 +1,7 @@
 """Database configuration and utilities."""
 
 from sqlmodel import SQLModel, create_engine, Session, select
+from sqlalchemy import func
 from typing import List, Optional, Tuple
 from datetime import datetime
 import logging
@@ -516,6 +517,11 @@ class EstadisticaNotarialCRUD:
         """Get all stored rows across every combo."""
         return session.exec(select(EstadisticaNotarial)).all()
 
+    @staticmethod
+    def get_latest_data_update(session: Session) -> Optional[datetime]:
+        """Get the newest last_data_update across all stored rows, or None if empty."""
+        return session.exec(select(func.max(EstadisticaNotarial.last_data_update))).one()
+
 
 # CRUD Helpers for EstadisticaZonaNotarial (append-only public price-avg series)
 class EstadisticaZonaNotarialCRUD:
@@ -543,7 +549,10 @@ class EstadisticaZonaNotarialCRUD:
             .where(EstadisticaZonaNotarial.zona == zona)
             .where(EstadisticaZonaNotarial.property_type == property_type)
             .where(EstadisticaZonaNotarial.construction_type == construction_type)
-            .order_by(EstadisticaZonaNotarial.captured_at.desc())
+            .order_by(
+                EstadisticaZonaNotarial.captured_at.desc(),
+                EstadisticaZonaNotarial.id.desc(),
+            )
         )
         return session.exec(stmt).all()
 

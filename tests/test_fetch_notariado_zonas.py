@@ -3,7 +3,7 @@ orchestration, append-if-outcome-changed dedup, per-zona/per-combo failure
 isolation, exit-code semantics, and RegistroEjecucion accounting.
 
 Uses an in-memory SQLite engine (Fuente + RegistroEjecucion +
-EstadisticaZonaNotarial tables only — avoids Propiedad's ARRAY column, same
+EstadisticaNotarial + EstadisticaZonaNotarial tables only — avoids Propiedad's ARRAY column, same
 pattern as tests/test_fetch_notariado_stats.py) and monkeypatches the
 script's module-level `engine`, `fetch_price_avg`, `load_zona_geometry`, and
 `ZONA_SLUGS` references. No live HTTP, no real DB.
@@ -11,6 +11,7 @@ script's module-level `engine`, `fetch_price_avg`, `load_zona_geometry`, and
 import json
 import logging
 import sys
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -19,7 +20,12 @@ from sqlmodel import Session, create_engine, select
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "app"))
 
-from db.models import EstadisticaZonaNotarial, Fuente, RegistroEjecucion  # noqa: E402
+from db.models import (  # noqa: E402
+    EstadisticaNotarial,
+    EstadisticaZonaNotarial,
+    Fuente,
+    RegistroEjecucion,
+)
 from scraper.notariado_client import ZONA_COMBOS, NotariadoPriceAvgError  # noqa: E402
 from scraper.notariado_zonas import ZonaGeometryError  # noqa: E402
 
@@ -31,18 +37,39 @@ GEOMETRY_FIXTURE = json.loads(
 
 WHERES = [where for _, _, where in ZONA_COMBOS]
 
+PERIOD = datetime(2026, 6, 1)
+NEXT_PERIOD = datetime(2026, 7, 1)
+
 
 def _memory_engine():
     engine = create_engine("sqlite:///:memory:")
     Fuente.__table__.create(bind=engine, checkfirst=True)
     RegistroEjecucion.__table__.create(bind=engine, checkfirst=True)
+    EstadisticaNotarial.__table__.create(bind=engine, checkfirst=True)
     EstadisticaZonaNotarial.__table__.create(bind=engine, checkfirst=True)
     return engine
+
+
+def _seed_period(engine, last_data_update=PERIOD):
+    """Insert one general notariado row so the script can read its period."""
+    with Session(engine) as session:
+        session.add(
+            EstadisticaNotarial(
+                location_code="11027",
+                property_type="piso",
+                construction_type="obra_nueva",
+                last_data_update=last_data_update,
+                report_date=last_data_update,
+                raw_json="{}",
+            )
+        )
+        session.commit()
 
 
 @pytest.fixture()
 def test_engine(monkeypatch):
     engine = _memory_engine()
+    _seed_period(engine)
     monkeypatch.setattr(fnz, "engine", engine)
     return engine
 
@@ -253,3 +280,98 @@ def test_sentinel_fuente_created_once_and_reused(test_engine, stub_geometry, mon
     assert len(fuentes) == 1
     assert fuentes[0].tipo_scraper == "notariado_zonas"
     assert fuentes[0].activa is False
+
+
+def test_rows_store_the_general_notariado_period(
+    test_engine, stub_geometry, monkeypatch
+):
+    monkeypatch.setattr(
+        fnz, "fetch_price_avg", _price_stub({where: 7000 for where in WHERES})
+    )
+
+    assert fnz.main([]) == 0
+
+    rows = _rows(test_engine)
+    assert len(rows) == 4
+    assert {row.last_data_update for row in rows} == {PERIOD}
+
+
+def test_period_uses_max_of_general_table(test_engine, stub_geometry, monkeypatch):
+    _seed_period(test_engine, NEXT_PERIOD)
+    monkeypatch.setattr(
+        fnz, "fetch_price_avg", _price_stub({where: 7000 for where in WHERES})
+    )
+
+    assert fnz.main([]) == 0
+
+    assert {row.last_data_update for row in _rows(test_engine)} == {NEXT_PERIOD}
+
+
+def test_new_period_with_identical_outcome_inserts_new_rows(
+    test_engine, stub_geometry, monkeypatch
+):
+    mapping = {where: 8000 + idx for idx, where in enumerate(WHERES)}
+    monkeypatch.setattr(fnz, "fetch_price_avg", _price_stub(mapping))
+    assert fnz.main([]) == 0
+    assert len(_rows(test_engine)) == 4
+
+    _seed_period(test_engine, NEXT_PERIOD)
+    assert fnz.main([]) == 0
+
+    rows = _rows(test_engine)
+    assert len(rows) == 8
+    assert sorted({row.last_data_update for row in rows}) == [PERIOD, NEXT_PERIOD]
+    assert _run_logs(test_engine)[1].nuevas == 4
+
+
+def test_same_period_same_outcome_skips(test_engine, stub_geometry, monkeypatch):
+    mapping = {where: 8500 + idx for idx, where in enumerate(WHERES)}
+    monkeypatch.setattr(fnz, "fetch_price_avg", _price_stub(mapping))
+
+    assert fnz.main([]) == 0
+    assert fnz.main([]) == 0
+
+    assert len(_rows(test_engine)) == 4
+    assert _run_logs(test_engine)[1].nuevas == 0
+
+
+def test_same_period_changed_outcome_inserts(test_engine, stub_geometry, monkeypatch):
+    base = {where: 9000 + idx for idx, where in enumerate(WHERES)}
+    monkeypatch.setattr(fnz, "fetch_price_avg", _price_stub(base))
+    assert fnz.main([]) == 0
+
+    changed = dict(base)
+    changed[WHERES[2]] = 9999
+    monkeypatch.setattr(fnz, "fetch_price_avg", _price_stub(changed))
+    assert fnz.main([]) == 0
+
+    rows = _rows(test_engine)
+    assert len(rows) == 5
+    assert {row.last_data_update for row in rows} == {PERIOD}
+    assert _run_logs(test_engine)[1].nuevas == 1
+
+
+def test_no_general_period_exits_nonzero_without_inserting(
+    monkeypatch, stub_geometry, caplog
+):
+    engine = _memory_engine()  # general notariado table left empty
+    monkeypatch.setattr(fnz, "engine", engine)
+
+    def _must_not_fetch(geometry, where, **kwargs):
+        raise AssertionError("fetch_price_avg must not run without a period")
+
+    monkeypatch.setattr(fnz, "fetch_price_avg", _must_not_fetch)
+
+    with caplog.at_level(logging.ERROR, logger=fnz.logger.name):
+        exit_code = fnz.main([])
+
+    assert exit_code != 0
+    assert _rows(engine) == []
+    logs = _run_logs(engine)
+    assert len(logs) == 1
+    assert logs[0].nuevas == 0
+    assert logs[0].errores >= 1
+    assert any(
+        record.levelno == logging.ERROR and "notariado_stats" in record.getMessage()
+        for record in caplog.records
+    )
