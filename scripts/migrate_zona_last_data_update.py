@@ -5,9 +5,10 @@ Pasos, en una sola transacción:
 1. ADD COLUMN nullable + índice ix_estadisticazonanotarial_last_data_update.
 2. Backfill de las filas existentes con el periodo general vigente en el
    momento de la captura: MAX(estadisticanotarial.last_data_update) de las
-   filas creadas antes o en el mismo instante que captured_at.
-3. SET NOT NULL, solo si no queda ninguna fila sin periodo. Si quedan, se
-   listan y la columna sigue nullable (no se inventa un periodo).
+   filas creadas antes o en el mismo instante que captured_at. Si no hay
+   ninguna, se usa el mes de captura (misma regla de respaldo que el
+   frontend) y esas filas se listan como aviso.
+3. SET NOT NULL.
 
 Idempotente: se puede ejecutar varias veces sin efecto adicional.
 Con --dry-run se ejecuta todo y se hace rollback al final.
@@ -35,19 +36,26 @@ ESQUEMA = [
 
 BACKFILL = """
 UPDATE estadisticazonanotarial AS z
-SET last_data_update = (
-    SELECT MAX(e.last_data_update)
-    FROM estadisticanotarial AS e
-    WHERE e.created_at <= z.captured_at
+SET last_data_update = COALESCE(
+    (
+        SELECT MAX(e.last_data_update)
+        FROM estadisticanotarial AS e
+        WHERE e.created_at <= z.captured_at
+    ),
+    date_trunc('month', z.captured_at)
 )
 WHERE z.last_data_update IS NULL
 """
 
-SIN_PERIODO = """
-SELECT id, zona, property_type, construction_type, captured_at
-FROM estadisticazonanotarial
-WHERE last_data_update IS NULL
-ORDER BY captured_at
+SIN_PERIODO_GENERAL = """
+SELECT z.id, z.zona, z.property_type, z.construction_type, z.captured_at
+FROM estadisticazonanotarial AS z
+WHERE z.last_data_update IS NULL
+  AND NOT EXISTS (
+      SELECT 1 FROM estadisticanotarial AS e
+      WHERE e.created_at <= z.captured_at
+  )
+ORDER BY z.captured_at
 """
 
 NOT_NULL = (
@@ -65,11 +73,20 @@ ORDER BY 1, 2
 """
 
 
-def migrar(conn) -> bool:
-    """Run the migration on an open transaction. Returns True if NOT NULL was applied."""
+def migrar(conn) -> None:
+    """Run the migration on an open transaction."""
     for sql in ESQUEMA:
         logger.info(sql)
         conn.execute(text(sql))
+
+    sin_periodo_general = conn.execute(text(SIN_PERIODO_GENERAL)).fetchall()
+    if sin_periodo_general:
+        logger.warning(
+            "%s fila(s) sin periodo general previo; se usa el mes de captura:",
+            len(sin_periodo_general),
+        )
+        for fila in sin_periodo_general:
+            logger.warning("  %s", tuple(fila))
 
     actualizadas = conn.execute(text(BACKFILL)).rowcount
     logger.info("Backfill: %s fila(s) actualizada(s)", actualizadas)
@@ -77,19 +94,8 @@ def migrar(conn) -> bool:
     for mes, periodo, filas in conn.execute(text(RESUMEN)):
         logger.info("  captura %s -> periodo %s: %s fila(s)", mes, periodo, filas)
 
-    pendientes = conn.execute(text(SIN_PERIODO)).fetchall()
-    if pendientes:
-        logger.warning(
-            "%s fila(s) sin periodo general previo; la columna queda nullable:",
-            len(pendientes),
-        )
-        for fila in pendientes:
-            logger.warning("  %s", tuple(fila))
-        return False
-
     logger.info(NOT_NULL)
     conn.execute(text(NOT_NULL))
-    return True
 
 
 def main(argv=None) -> int:
@@ -104,7 +110,7 @@ def main(argv=None) -> int:
     conn = engine.connect()
     trans = conn.begin()
     try:
-        not_null = migrar(conn)
+        migrar(conn)
         if args.dry_run:
             trans.rollback()
             logger.info("Dry run: rollback, no se ha modificado nada")
@@ -117,7 +123,7 @@ def main(argv=None) -> int:
     finally:
         conn.close()
 
-    return 0 if not_null else 1
+    return 0
 
 
 if __name__ == "__main__":
