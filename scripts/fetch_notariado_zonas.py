@@ -9,6 +9,14 @@ loads that barrio's ArcGIS polygon once, then queries the 4 fixed
 (property, construction) combos, applying an append-if-outcome-changed
 dedup rule against the latest stored row per combo.
 
+The zona endpoint returns no timestamp, so each row's `last_data_update` is
+the newest period in the general notariado table
+(`EstadisticaNotarialCRUD.get_latest_data_update`), read once per run. A row
+is inserted when there is no prior row for the zona+combo, OR the period
+differs from the latest row's, OR (sin_datos, price_avg) changed; the same
+period with the same outcome is skipped. If no general period exists yet
+(notariado_stats never ran) the run fails without inserting anything.
+
 Since `RegistroEjecucion.fuente_id` is a required FK to `Fuente` and this
 public source has no scraper `Fuente`, the script gets-or-creates a single
 inactive sentinel `Fuente` row to anchor the run log — see
@@ -18,8 +26,8 @@ A run always writes exactly one `RegistroEjecucion(tipo="notariado_zonas")`
 row (success and failure). PAV002 ("area with limited data") is an expected
 no-data outcome, never an error, and never forces a non-zero exit; a run
 where every combo returned PAV002 still exits 0 but logs a WARNING. Any
-real error (network failure, non-PAV002 non-2xx, unusable geometry file)
-forces a non-zero exit so CI surfaces it.
+real error (network failure, non-PAV002 non-2xx, unusable geometry file,
+missing general notariado period) forces a non-zero exit so CI surfaces it.
 
 Usage:
     python scripts/fetch_notariado_zonas.py
@@ -28,6 +36,7 @@ Usage:
 import logging
 import sys
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
@@ -38,6 +47,7 @@ from sqlmodel import Session  # noqa: E402
 
 from db.database import (  # noqa: E402
     engine,
+    EstadisticaNotarialCRUD,
     EstadisticaZonaNotarialCRUD,
     FuenteCRUD,
     RegistroEjecucionCRUD,
@@ -81,8 +91,10 @@ def ingest_zona_combo(
     property_slug: str,
     construction_slug: str,
     where: str,
+    last_data_update: datetime,
 ) -> tuple[int, int]:
-    """Fetch one (zona, combo) price-avg and dedup-insert a row.
+    """Fetch one (zona, combo) price-avg and dedup-insert a row stamped with
+    the general notariado `last_data_update` period.
 
     Returns `(rows_inserted, returned_pav002)` — the first is 0 or 1, the
     second is 1 when the endpoint reported PAV002 this run (independent of
@@ -99,9 +111,10 @@ def ingest_zona_combo(
     latest = EstadisticaZonaNotarialCRUD.get_latest_for_zona_combo(
         session, zona, property_slug, construction_slug
     )
-    changed = latest is None or (latest.sin_datos, latest.price_avg) != (
-        sin_datos,
-        price_avg,
+    changed = (
+        latest is None
+        or latest.last_data_update != last_data_update
+        or (latest.sin_datos, latest.price_avg) != (sin_datos, price_avg)
     )
 
     inserted = 0
@@ -115,6 +128,7 @@ def ingest_zona_combo(
                 price_avg=price_avg,
                 sin_datos=sin_datos,
                 where_clause=where,
+                last_data_update=last_data_update,
             ),
         )
         inserted = 1
@@ -165,6 +179,13 @@ def main(argv=None) -> int:
         with Session(engine) as session:
             fuente_id = _get_or_create_sentinel_fuente(session).id
 
+            last_data_update = EstadisticaNotarialCRUD.get_latest_data_update(session)
+            if last_data_update is None:
+                raise RuntimeError(
+                    "No general notariado period available "
+                    "(EstadisticaNotarial is empty) — run notariado_stats first"
+                )
+
             for zona in ZONA_SLUGS:
                 try:
                     geometry = load_zona_geometry(zona)
@@ -182,6 +203,7 @@ def main(argv=None) -> int:
                             property_slug,
                             construction_slug,
                             where,
+                            last_data_update,
                         )
                         inserted += row_inserted
                         no_data_count += row_no_data

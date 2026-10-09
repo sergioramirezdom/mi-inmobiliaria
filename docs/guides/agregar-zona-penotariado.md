@@ -124,8 +124,12 @@ gh run watch
 ```
 
 Corre contra Neon **producción**. La tabla `estadisticazonanotarial` ya
-existe. El dedup solo inserta filas cuando cambia `(sin_datos, price_avg)`
-respecto a la última fila de esa (zona, combo).
+existe. Cada fila guarda en `last_data_update` el periodo de datos, tomado
+del `MAX(last_data_update)` de `estadisticanotarial` (el endpoint de zonas no
+devuelve fecha). El dedup inserta una fila cuando cambia el periodo o cuando
+cambia `(sin_datos, price_avg)` respecto a la última fila de esa
+(zona, combo). Si `estadisticanotarial` está vacía, la ingesta falla sin
+insertar nada: hay que ejecutar antes `notariado_stats`.
 
 ---
 

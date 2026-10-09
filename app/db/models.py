@@ -250,10 +250,13 @@ class EstadisticaNotarial(SQLModel, table=True):
 class EstadisticaZonaNotarial(SQLModel, table=True):
     """Public price-avg row for one (zona, property_type, construction_type).
 
-    Append-only. A row is written only when the outcome pair
-    (sin_datos, price_avg) differs from the latest stored row for the same
-    zona+combo — the endpoint returns no timestamp, so outcome change is the
-    only available dedup signal. property_type/construction_type store the
+    Append-only, deduplicated per (zona, combo, last_data_update) + outcome:
+    a row is written when there is no prior row for the zona+combo, when the
+    data period advanced, or when the outcome pair (sin_datos, price_avg)
+    differs from the latest stored row. The zona endpoint returns no
+    timestamp, so last_data_update is copied at ingest time from the general
+    notariado table (MAX(EstadisticaNotarial.last_data_update)); it is the
+    period the values belong to, not the capture time. property_type/construction_type store the
     human-readable slug, not the numeric API code — the code→slug map lives
     only in scraper/notariado_client.py.
 
@@ -270,4 +273,5 @@ class EstadisticaZonaNotarial(SQLModel, table=True):
     sin_datos: bool = Field(default=False)  # True iff API returned PAV002
     where_clause: str  # exact ArcGIS clause used for this query
     captured_at: datetime = Field(default_factory=datetime.utcnow, index=True)
+    last_data_update: datetime = Field(index=True)  # data period; dedup key (w/ zona+combo)
 
